@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "ITMO Sport: Доступные места",
+  "version": "1.0.0",
+  "description": "Скрывает занятия спортом с 0 мест на my.itmo.ru и показывает количество свободных мест прямо на карточках.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    },
+    "default_title": "ITMO Sport"
+  },
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://my.itmo.ru/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://my.itmo.ru/sport*",
+        "https://my.itmo.ru/*"
+      ],
+      "js": [
+        "content/page-bridge.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://my.itmo.ru/sport*",
+        "https://my.itmo.ru/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "css": [
+        "content/styles.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/page-bridge.js",
+        "icons/*"
+      ],
+      "matches": [
+        "https://my.itmo.ru/*"
+      ]
+    }
+  ]
+}

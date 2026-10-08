@@ -1,0 +1,76 @@
+.itmo-sport-hidden-card {
+  display: none !important;
+}
+
+.itmo-sport-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 12px;
+  margin-top: 5px;
+  transition: all 0.2s ease;
+  width: fit-content;
+  user-select: none;
+}
+
+.itmo-sport-badge-available {
+  background-color: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+
+.itmo-sport-badge-empty {
+  background-color: #ffebee;
+  color: #c62828;
+  border: 1px solid #ffcdd2;
+}
+
+.itmo-sport-badge-icon {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.itmo-sport-badge-available .itmo-sport-badge-icon {
+  background-color: #43a047;
+}
+
+.itmo-sport-badge-empty .itmo-sport-badge-icon {
+  background-color: #e53935;
+}
+
+.itmo-sport-switch-wrapper {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 18px;
+  vertical-align: middle;
+}
+
+.itmo-sport-inpage-switcher {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 0 !important;
+  cursor: pointer;
+}
+
+.itmo-sport-inpage-switcher .switcher-label {
+  font-weight: 600 !important;
+  color: #0d4cd3 !important;
+  margin-left: 8px;
+  user-select: none;
+}
+
+.itmo-sport-inpage-switcher .badge-count {
+  font-size: 11px;
+  font-weight: bold;
+  background-color: #e8f0fe;
+  color: #0d4cd3;
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+}

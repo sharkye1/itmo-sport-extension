@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ITMO Sport</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="header">
+      <div class="logo-area">
+        <div class="logo-icon"></div>
+        <div>
+          <div class="title">ITMO Sport</div>
+          <div class="subtitle">Фильтр мест</div>
+        </div>
+      </div>
+      <span class="version-tag">v1.0</span>
+    </header>
+
+    <div id="status-card" class="status-card status-active">
+      <span class="status-dot"></span>
+      <span id="status-text">Расширение активно</span>
+    </div>
+
+    <div class="controls-section">
+      <label class="control-row">
+        <div class="control-info">
+          <span class="control-title">Скрывать занятия без мест</span>
+          <span class="control-desc">Прячет слоты, где на дату 0 свободных мест</span>
+        </div>
+        <input type="checkbox" id="toggle-hide-zero" class="switch-checkbox">
+        <span class="switch-ui"></span>
+      </label>
+
+      <label class="control-row">
+        <div class="control-info">
+          <span class="control-title">Количество мест на карточках</span>
+          <span class="control-desc">Показывает остаток мест прямо в сетке</span>
+        </div>
+        <input type="checkbox" id="toggle-show-badges" class="switch-checkbox">
+        <span class="switch-ui"></span>
+      </label>
+    </div>
+
+    <div class="stats-section">
+      <div class="stat-card stat-hidden">
+        <div class="stat-num" id="stat-hidden">0</div>
+        <div class="stat-label">Скрыто</div>
+      </div>
+      <div class="stat-card stat-available">
+        <div class="stat-num" id="stat-available">0</div>
+        <div class="stat-label">Доступно</div>
+      </div>
+      <div class="stat-card stat-total">
+        <div class="stat-num" id="stat-total">0</div>
+        <div class="stat-label">Всего</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <a href="https://my.itmo.ru/sport/sign" target="_blank" class="itmo-link">
+        Открыть запись на спорт ↗
+      </a>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
