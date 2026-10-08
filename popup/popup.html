@@ -13,10 +13,10 @@
         <div class="logo-icon"></div>
         <div>
           <div class="title">ITMO Sport</div>
-          <div class="subtitle">Фильтр мест</div>
+          <div class="subtitle">Фильтр мест и пар</div>
         </div>
       </div>
-      <span class="version-tag">v1.1</span>
+      <span class="version-tag">v1.2</span>
     </header>
 
     <div id="status-card" class="status-card status-active">
@@ -31,6 +31,15 @@
           <span class="control-desc">Оставляет только актуальные слоты с местами</span>
         </div>
         <input type="checkbox" id="toggle-hide-zero" class="switch-checkbox">
+        <span class="switch-ui"></span>
+      </label>
+
+      <label class="control-row">
+        <div class="control-info">
+          <span class="control-title">Без пересечений с парами</span>
+          <span class="control-desc">Прячет пары, конфликтующие с расписанием</span>
+        </div>
+        <input type="checkbox" id="toggle-hide-intersections" class="switch-checkbox">
         <span class="switch-ui"></span>
       </label>
 

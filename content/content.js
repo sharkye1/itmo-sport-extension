@@ -1,6 +1,7 @@
 (() => {
   const DEFAULT_SETTINGS = {
     hideZeroSpots: true,
+    hideIntersections: false,
     showBadges: true
   };
 

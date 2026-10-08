@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', async () => {
   const toggleHideZero = document.getElementById('toggle-hide-zero');
+  const toggleHideIntersections = document.getElementById('toggle-hide-intersections');
   const toggleShowBadges = document.getElementById('toggle-show-badges');
   const statHidden = document.getElementById('stat-hidden');
   const statAvailable = document.getElementById('stat-available');
@@ -9,10 +10,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const stored = await chrome.storage.local.get({
     hideZeroSpots: true,
+    hideIntersections: false,
     showBadges: true
   });
 
   toggleHideZero.checked = stored.hideZeroSpots;
+  if (toggleHideIntersections) {
+    toggleHideIntersections.checked = !!stored.hideIntersections;
+  }
   toggleShowBadges.checked = stored.showBadges;
 
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -30,6 +35,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (response) {
         if (response.settings) {
           toggleHideZero.checked = response.settings.hideZeroSpots;
+          if (toggleHideIntersections && typeof response.settings.hideIntersections !== 'undefined') {
+            toggleHideIntersections.checked = response.settings.hideIntersections;
+          }
           toggleShowBadges.checked = response.settings.showBadges;
         }
         if (response.stats) {
@@ -63,6 +71,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   toggleHideZero.addEventListener('change', async (e) => {
     await updateSetting('hideZeroSpots', e.target.checked);
   });
+
+  if (toggleHideIntersections) {
+    toggleHideIntersections.addEventListener('change', async (e) => {
+      await updateSetting('hideIntersections', e.target.checked);
+    });
+  }
 
   toggleShowBadges.addEventListener('change', async (e) => {
     await updateSetting('showBadges', e.target.checked);

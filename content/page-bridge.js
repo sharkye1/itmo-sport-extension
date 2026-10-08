@@ -11,11 +11,13 @@
   const state = {
     settings: {
       hideZeroSpots: true,
+      hideIntersections: false,
       showBadges: true
     },
     limits: {},
     lessonGroupMap: {},
     lessonDates: {},
+    lessonIntersections: {},
     stats: {
       total: 0,
       available: 0,
@@ -73,6 +75,8 @@
           if (lesson.lesson_group_id) {
             state.lessonGroupMap[lessonId] = String(lesson.lesson_group_id);
           }
+
+          state.lessonIntersections[lessonId] = !!lesson.intersection;
 
           let dateStart = parseLessonDate(lesson.date_start);
           if (!dateStart && dayDate && lesson.time_slot_start) {
@@ -255,6 +259,14 @@
     return false;
   }
 
+  function hasLessonIntersection(lessonId, card) {
+    if (card?.querySelector('.red_circle')) return true;
+    if (state.lessonIntersections[lessonId] === true) return true;
+    const vueComp = card?.querySelector('.sport-item')?.__vue__ || card?.__vue__;
+    if (vueComp?.lesson?.intersection) return true;
+    return false;
+  }
+
   function getLimitForLesson(lessonId) {
     lessonId = String(lessonId);
 
@@ -300,6 +312,7 @@
       const lessonId = card.id.replace('section-', '');
       const limitData = getLimitForLesson(lessonId);
       const isPast = isLessonInPast(lessonId, card);
+      const hasIntersection = hasLessonIntersection(lessonId, card);
 
       const hasSpots = (limitData !== null && typeof limitData.available === 'number') ? limitData.available > 0 : true;
       const available = limitData ? Math.max(0, limitData.available) : null;
@@ -331,8 +344,10 @@
         badge.remove();
       }
 
-      // Скрытие карточек, если нет мест ИЛИ занятие в прошлом
-      const shouldHide = state.settings.hideZeroSpots && (!hasSpots || isPast);
+      // Фильтрация
+      const hideBecauseZeroOrPast = state.settings.hideZeroSpots && (!hasSpots || isPast);
+      const hideBecauseIntersection = state.settings.hideIntersections && hasIntersection;
+      const shouldHide = hideBecauseZeroOrPast || hideBecauseIntersection;
 
       if (shouldHide) {
         card.classList.add('itmo-sport-hidden-card');
@@ -368,7 +383,7 @@
       customWrapper = document.createElement('div');
       customWrapper.className = 'itmo-sport-switch-wrapper';
       customWrapper.innerHTML = `
-        <label class="switcher itmo-sport-inpage-switcher" title="Скрывать прошедшие занятия и занятия без мест">
+        <label class="switcher itmo-sport-inpage-switcher" title="Скрывать прошедшие занятия и занятия без свободных мест">
           <input type="checkbox" class="switcher-input" id="itmo-sport-inpage-toggle">
           <span class="switcher-indicator">
             <span class="switcher-yes"></span>
@@ -379,14 +394,23 @@
             <span class="badge-count" style="display: none;">0</span>
           </span>
         </label>
+        <label class="switcher itmo-sport-inpage-switcher" title="Скрывать занятия, пересекающиеся с учебными парами">
+          <input type="checkbox" class="switcher-input" id="itmo-sport-toggle-intersections">
+          <span class="switcher-indicator">
+            <span class="switcher-yes"></span>
+            <span class="switcher-no"></span>
+          </span>
+          <span class="switcher-label">
+            Без пересечений
+          </span>
+        </label>
       `;
 
       existingSwitcher.parentElement.appendChild(customWrapper);
 
-      const toggleInput = customWrapper.querySelector('#itmo-sport-inpage-toggle');
-      toggleInput.checked = !!state.settings.hideZeroSpots;
-
-      toggleInput.addEventListener('change', (e) => {
+      const toggleSpots = customWrapper.querySelector('#itmo-sport-inpage-toggle');
+      toggleSpots.checked = !!state.settings.hideZeroSpots;
+      toggleSpots.addEventListener('change', (e) => {
         state.settings.hideZeroSpots = e.target.checked;
         scheduleUpdateUI(20);
         window.postMessage({
@@ -395,10 +419,26 @@
           value: e.target.checked
         }, '*');
       });
+
+      const toggleIntersections = customWrapper.querySelector('#itmo-sport-toggle-intersections');
+      toggleIntersections.checked = !!state.settings.hideIntersections;
+      toggleIntersections.addEventListener('change', (e) => {
+        state.settings.hideIntersections = e.target.checked;
+        scheduleUpdateUI(20);
+        window.postMessage({
+          type: 'ITMO_SPORT_BRIDGE_SETTING_CHANGED',
+          setting: 'hideIntersections',
+          value: e.target.checked
+        }, '*');
+      });
     } else {
-      const toggleInput = customWrapper.querySelector('#itmo-sport-inpage-toggle');
-      if (toggleInput && toggleInput.checked !== !!state.settings.hideZeroSpots) {
-        toggleInput.checked = !!state.settings.hideZeroSpots;
+      const toggleSpots = customWrapper.querySelector('#itmo-sport-inpage-toggle');
+      if (toggleSpots && toggleSpots.checked !== !!state.settings.hideZeroSpots) {
+        toggleSpots.checked = !!state.settings.hideZeroSpots;
+      }
+      const toggleIntersections = customWrapper.querySelector('#itmo-sport-toggle-intersections');
+      if (toggleIntersections && toggleIntersections.checked !== !!state.settings.hideIntersections) {
+        toggleIntersections.checked = !!state.settings.hideIntersections;
       }
     }
   }
@@ -406,7 +446,7 @@
   function updateBadgeInSwitcher() {
     const countBadge = document.querySelector('.itmo-sport-inpage-switcher .badge-count');
     if (countBadge) {
-      if (state.settings.hideZeroSpots && state.stats.hidden > 0) {
+      if ((state.settings.hideZeroSpots || state.settings.hideIntersections) && state.stats.hidden > 0) {
         countBadge.style.display = 'inline-block';
         countBadge.innerText = `скрыто: ${state.stats.hidden}`;
       } else {
