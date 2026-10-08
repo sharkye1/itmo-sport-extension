@@ -37,10 +37,18 @@
   function scheduleUpdateUI(delay = 50) {
     if (updateTimer) clearTimeout(updateTimer);
     updateTimer = setTimeout(() => {
-      syncFromNuxtStore();
-      updateInPageSwitcher();
-      updateBuildingsBar();
-      updateCards();
+      try {
+        syncFromNuxtStore();
+      } catch (e) {}
+      try {
+        updateInPageSwitcher();
+      } catch (e) {}
+      try {
+        updateBuildingsBar();
+      } catch (e) {}
+      try {
+        updateCards();
+      } catch (e) {}
     }, delay);
   }
 
@@ -83,46 +91,47 @@
     return null;
   }
 
-  function findBuildingsInObject(obj) {
-    if (!obj || typeof obj !== 'object') return null;
-    if (Array.isArray(obj)) {
-      if (obj.some(item => typeof item?.name === 'string' && (item.name.includes('Ломонос') || item.name.includes('Вязем')))) {
-        return obj;
-      }
-      for (const item of obj) {
-        const found = findBuildingsInObject(item);
-        if (found) return found;
-      }
-    } else {
-      if (Array.isArray(obj.buildings)) return obj.buildings;
-      for (const val of Object.values(obj)) {
-        const found = findBuildingsInObject(val);
-        if (found) return found;
-      }
+  function extractBuildings(data) {
+    if (!data) return null;
+    if (Array.isArray(data)) {
+      if (data.some(b => b && typeof b.name === 'string')) return data;
+    }
+    if (Array.isArray(data?.result?.buildings)) return data.result.buildings;
+    if (Array.isArray(data?.buildings)) return data.buildings;
+    if (Array.isArray(data?.result)) {
+      if (data.result.some(b => b && typeof b.name === 'string')) return data.result;
     }
     return null;
   }
 
+  let isFetchingFilters = false;
   async function fetchFiltersDirectly() {
+    if (isFetchingFilters || (state.availableBuildings && state.availableBuildings.length > 0)) return;
+    isFetchingFilters = true;
     try {
       const res = await fetch('/api/sport/sign/schedule/filters');
       const json = await res.json();
-      const b = findBuildingsInObject(json);
+      const b = extractBuildings(json);
       if (Array.isArray(b) && b.length > 0) {
         state.availableBuildings = b;
         syncSelectedBuildings();
         scheduleUpdateUI(30);
       }
-    } catch (e) {}
+    } catch (e) {
+    } finally {
+      isFetchingFilters = false;
+    }
   }
 
   function parseFiltersResponse(data) {
-    const b = findBuildingsInObject(data);
-    if (Array.isArray(b) && b.length > 0) {
-      state.availableBuildings = b;
-      syncSelectedBuildings();
-      updateBuildingsBar();
-    }
+    try {
+      const b = extractBuildings(data);
+      if (Array.isArray(b) && b.length > 0) {
+        state.availableBuildings = b;
+        syncSelectedBuildings();
+        updateBuildingsBar();
+      }
+    } catch (e) {}
   }
 
   function parseScheduleResponse(data) {
@@ -240,22 +249,43 @@
   };
 
   function findBuildingsInStore() {
-    const store = window.$nuxt?.$store;
-    if (!store) return null;
-    return findBuildingsInObject(store.state?.['modules/sport']) ||
-           findBuildingsInObject(store.getters);
+    try {
+      const store = window.$nuxt?.$store;
+      if (!store) return null;
+      const sport = store.state?.['modules/sport'] || store.state?.sport;
+      if (sport) {
+        const list = extractBuildings(sport.filters?.filters?.buildings) ||
+                     extractBuildings(sport.filters?.availableFilters?.buildings) ||
+                     extractBuildings(sport.filters?.buildings) ||
+                     extractBuildings(sport.scheduleFilters?.buildings) ||
+                     extractBuildings(sport.buildings);
+        if (list) return list;
+      }
+      const getters = store.getters;
+      if (getters) {
+        for (const key of Object.keys(getters)) {
+          if (key.includes('building') || key.includes('Building') || key.includes('filters')) {
+            const list = extractBuildings(getters[key]);
+            if (list) return list;
+          }
+        }
+      }
+    } catch (e) {}
+    return null;
   }
 
   function findBuildingsInDom() {
-    const multiselects = document.querySelectorAll('.multiselect');
-    for (const ms of multiselects) {
-      const options = ms.__vue__?.options;
-      if (Array.isArray(options) && options.length > 0) {
-        if (options.some(o => typeof o?.name === 'string' && (o.name.includes('Ломонос') || o.name.includes('Вязем')))) {
-          return options;
+    try {
+      const multiselects = document.querySelectorAll('.multiselect');
+      for (const ms of multiselects) {
+        const options = ms.__vue__?.options;
+        if (Array.isArray(options) && options.length > 0) {
+          if (options.some(o => o && typeof o.name === 'string' && (o.name.includes('Ломонос') || o.name.includes('Вязем') || o.name.includes('Кронверк')))) {
+            return options;
+          }
         }
       }
-    }
+    } catch (e) {}
     return null;
   }
 
@@ -703,110 +733,107 @@
   }
 
   function updateBuildingsBar() {
-    if (!state.availableBuildings || state.availableBuildings.length === 0) {
-      const fromStore = findBuildingsInStore();
-      if (fromStore) state.availableBuildings = fromStore;
-      else {
-        const fromDom = findBuildingsInDom();
-        if (fromDom) state.availableBuildings = fromDom;
-      }
-    }
-
-    if (!state.availableBuildings || state.availableBuildings.length === 0) {
-      fetchFiltersDirectly();
-      return;
-    }
-
-    syncSelectedBuildings();
-
-    const weekSwitch = document.querySelector('.el-calendar-header-switch');
-    const calendarCard = document.querySelector('.card.sticky-top') ||
-                         document.querySelector('.card-body') ||
-                         document.querySelector('.el-calendar-table');
-    if (!weekSwitch && !calendarCard) return;
-
-    let bar = document.querySelector('.itmo-sport-buildings-bar');
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.className = 'itmo-sport-buildings-bar';
-      if (weekSwitch) {
-        const cardBody = weekSwitch.closest('.card-body') || weekSwitch.closest('.card');
-        if (cardBody) {
-          cardBody.insertBefore(bar, cardBody.firstChild);
-        } else if (weekSwitch.parentElement) {
-          weekSwitch.parentElement.insertBefore(bar, weekSwitch);
+    try {
+      if (!state.availableBuildings || state.availableBuildings.length === 0) {
+        const fromStore = findBuildingsInStore();
+        if (fromStore) state.availableBuildings = fromStore;
+        else {
+          const fromDom = findBuildingsInDom();
+          if (fromDom) state.availableBuildings = fromDom;
         }
-      } else if (calendarCard && calendarCard.parentElement) {
-        calendarCard.parentElement.insertBefore(bar, calendarCard);
       }
-    }
 
-    const selectedIds = new Set((state.settings.selectedBuildingIds || []).map(String));
-    const isAllSelected = state.availableBuildings.length > 0 &&
-      state.availableBuildings.every(b => selectedIds.has(String(b.id)));
+      if (!state.availableBuildings || state.availableBuildings.length === 0) {
+        fetchFiltersDirectly();
+        return;
+      }
 
-    let chipsHtml = `
-      <span class="itmo-sport-buildings-title">Корпуса:</span>
-      <button type="button" class="itmo-sport-chip itmo-sport-chip-all ${isAllSelected ? 'active' : ''}" data-id="all">
-        Все
-      </button>
-    `;
+      syncSelectedBuildings();
 
-    state.availableBuildings.forEach(b => {
-      const bId = String(b.id);
-      const isSel = selectedIds.has(bId);
-      const shortName = getShortBuildingName(b.name);
-      chipsHtml += `
-        <button type="button" class="itmo-sport-chip ${isSel ? 'active' : ''}" data-id="${bId}" title="${b.name}">
-          ${isSel ? '✓ ' : ''}${shortName}
+      const weekSwitch = document.querySelector('.el-calendar-header-switch');
+      const calendarCard = document.querySelector('.card.sticky-top') ||
+                           document.querySelector('.card-body') ||
+                           document.querySelector('.el-calendar-table');
+      if (!weekSwitch && !calendarCard) return;
+
+      let bar = document.querySelector('.itmo-sport-buildings-bar');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.className = 'itmo-sport-buildings-bar';
+        if (weekSwitch && weekSwitch.parentElement) {
+          weekSwitch.parentElement.insertBefore(bar, weekSwitch);
+        } else if (calendarCard && calendarCard.parentElement) {
+          calendarCard.parentElement.insertBefore(bar, calendarCard);
+        }
+      }
+
+      const selectedIds = new Set((state.settings.selectedBuildingIds || []).map(String));
+      const isAllSelected = state.availableBuildings.length > 0 &&
+        state.availableBuildings.every(b => selectedIds.has(String(b.id)));
+
+      let chipsHtml = `
+        <span class="itmo-sport-buildings-title">Корпуса:</span>
+        <button type="button" class="itmo-sport-chip itmo-sport-chip-all ${isAllSelected ? 'active' : ''}" data-id="all">
+          Все
         </button>
       `;
-    });
 
-    bar.innerHTML = chipsHtml;
+      state.availableBuildings.forEach(b => {
+        const bId = String(b.id);
+        const isSel = selectedIds.has(bId);
+        const shortName = getShortBuildingName(b.name);
+        chipsHtml += `
+          <button type="button" class="itmo-sport-chip ${isSel ? 'active' : ''}" data-id="${bId}" title="${b.name}">
+            ${isSel ? '✓ ' : ''}${shortName}
+          </button>
+        `;
+      });
 
-    bar.querySelectorAll('.itmo-sport-chip').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const id = btn.getAttribute('data-id');
-        if (id === 'all') {
-          if (isAllSelected) {
-            state.settings.selectedBuildingIds = [String(state.availableBuildings[0].id)];
-          } else {
-            state.settings.selectedBuildingIds = state.availableBuildings.map(b => String(b.id));
-          }
-        } else {
-          let currentList = [...(state.settings.selectedBuildingIds || [])];
-          if (currentList.includes(id)) {
-            if (currentList.length > 1) {
-              currentList = currentList.filter(x => x !== id);
+      bar.innerHTML = chipsHtml;
+
+      bar.querySelectorAll('.itmo-sport-chip').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const id = btn.getAttribute('data-id');
+          if (id === 'all') {
+            if (isAllSelected) {
+              state.settings.selectedBuildingIds = [String(state.availableBuildings[0].id)];
+            } else {
+              state.settings.selectedBuildingIds = state.availableBuildings.map(b => String(b.id));
             }
           } else {
-            currentList.push(id);
+            let currentList = [...(state.settings.selectedBuildingIds || [])];
+            if (currentList.includes(id)) {
+              if (currentList.length > 1) {
+                currentList = currentList.filter(x => x !== id);
+              }
+            } else {
+              currentList.push(id);
+            }
+            state.settings.selectedBuildingIds = currentList;
           }
-          state.settings.selectedBuildingIds = currentList;
-        }
 
-        window.postMessage({
-          type: 'ITMO_SPORT_BRIDGE_SETTING_CHANGED',
-          setting: 'selectedBuildingIds',
-          value: state.settings.selectedBuildingIds
-        }, '*');
+          window.postMessage({
+            type: 'ITMO_SPORT_BRIDGE_SETTING_CHANGED',
+            setting: 'selectedBuildingIds',
+            value: state.settings.selectedBuildingIds
+          }, '*');
 
-        updateBuildingsBar();
-        if (state.settings.selectedBuildingIds.length > 1) {
-          loadMultiBuildingSchedule();
-        } else if (state.settings.selectedBuildingIds.length === 1) {
-          const store = window.$nuxt?.$store;
-          const targetBuilding = state.availableBuildings.find(b => String(b.id) === state.settings.selectedBuildingIds[0]);
-          if (store && targetBuilding) {
-            store.commit('modules/sport/filters/setBuilding', targetBuilding);
-            store.dispatch('modules/sport/sections/loadSectionsSchedule');
+          updateBuildingsBar();
+          if (state.settings.selectedBuildingIds.length > 1) {
+            loadMultiBuildingSchedule();
+          } else if (state.settings.selectedBuildingIds.length === 1) {
+            const store = window.$nuxt?.$store;
+            const targetBuilding = state.availableBuildings.find(b => String(b.id) === state.settings.selectedBuildingIds[0]);
+            if (store && targetBuilding) {
+              store.commit('modules/sport/filters/setBuilding', targetBuilding);
+              store.dispatch('modules/sport/sections/loadSectionsSchedule');
+            }
           }
-        }
+        });
       });
-    });
+    } catch (e) {}
   }
 
   function updateBadgeInSwitcher() {
