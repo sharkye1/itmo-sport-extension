@@ -2,6 +2,12 @@
   if (window.__ITMO_SPORT_BRIDGE_LOADED__) return;
   window.__ITMO_SPORT_BRIDGE_LOADED__ = true;
 
+  const RU_MONTHS = {
+    'январ': 0, 'феврал': 1, 'март': 2, 'апрел': 3,
+    'май': 4, 'мае': 4, 'мая': 4, 'июн': 5, 'июл': 6,
+    'август': 7, 'сентябр': 8, 'октябр': 9, 'ноябр': 10, 'декабр': 11
+  };
+
   const state = {
     settings: {
       hideZeroSpots: true,
@@ -9,6 +15,7 @@
     },
     limits: {},
     lessonGroupMap: {},
+    lessonDates: {},
     stats: {
       total: 0,
       available: 0,
@@ -28,14 +35,56 @@
     }, delay);
   }
 
+  function parseLessonDate(val) {
+    if (!val) return null;
+    if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+    if (typeof val === 'number') {
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      const iso = trimmed.replace(' ', 'T');
+      const d = new Date(iso);
+      if (!isNaN(d.getTime())) return d;
+
+      const m = trimmed.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?:[T\s](\d{1,2}):(\d{2}))?/);
+      if (m) {
+        return new Date(
+          parseInt(m[1], 10),
+          parseInt(m[2], 10) - 1,
+          parseInt(m[3], 10),
+          m[4] ? parseInt(m[4], 10) : 0,
+          m[5] ? parseInt(m[5], 10) : 0
+        );
+      }
+    }
+    return null;
+  }
+
   function parseScheduleResponse(data) {
     if (!data?.result || !Array.isArray(data.result)) return;
     data.result.forEach(day => {
+      const dayDate = day?.date ? String(day.date).split('T')[0].split(' ')[0] : null;
       if (Array.isArray(day?.lessons)) {
         day.lessons.forEach(lesson => {
-          if (lesson?.id && lesson?.lesson_group_id) {
-            state.lessonGroupMap[String(lesson.id)] = String(lesson.lesson_group_id);
+          if (!lesson?.id) return;
+          const lessonId = String(lesson.id);
+          if (lesson.lesson_group_id) {
+            state.lessonGroupMap[lessonId] = String(lesson.lesson_group_id);
           }
+
+          let dateStart = parseLessonDate(lesson.date_start);
+          if (!dateStart && dayDate && lesson.time_slot_start) {
+            dateStart = parseLessonDate(`${dayDate}T${lesson.time_slot_start}:00`);
+          }
+
+          let dateEnd = parseLessonDate(lesson.date_end);
+          if (!dateEnd && dayDate && lesson.time_slot_end) {
+            dateEnd = parseLessonDate(`${dayDate}T${lesson.time_slot_end}:00`);
+          }
+
+          state.lessonDates[lessonId] = { dateStart, dateEnd };
         });
       }
     });
@@ -54,7 +103,6 @@
     }
   }
 
-  // Intercept XMLHttpRequest
   const origOpen = XMLHttpRequest.prototype.open;
   const origSend = XMLHttpRequest.prototype.send;
 
@@ -79,7 +127,6 @@
     return origSend.apply(this, arguments);
   };
 
-  // Intercept Fetch API
   const origFetch = window.fetch;
   window.fetch = async function(...args) {
     const res = await origFetch.apply(this, args);
@@ -129,6 +176,85 @@
     } catch (e) {}
   }
 
+  function getDateFromDom(card) {
+    try {
+      const dayCell = card.closest('.day-cell') || card.closest('.el-calendar-cell');
+      if (!dayCell) return null;
+
+      const row = dayCell.closest('.el-calendar-row');
+      if (!row) return null;
+
+      const timeStartEl = row.querySelector('.time-start') || row.querySelector('.time-cell');
+      const timeText = timeStartEl ? timeStartEl.innerText.trim() : '';
+      const timeMatch = timeText.match(/(\d{1,2}):(\d{2})/);
+      const hour = timeMatch ? parseInt(timeMatch[1], 10) : 0;
+      const minute = timeMatch ? parseInt(timeMatch[2], 10) : 0;
+
+      const rowDayCells = Array.from(row.querySelectorAll('.day-cell, .el-calendar-cell')).filter(c => !c.classList.contains('time-cell'));
+      const colIndex = rowDayCells.indexOf(dayCell);
+      if (colIndex === -1) return null;
+
+      const headRow = document.querySelector('.el-calendar-row-head');
+      if (!headRow) return null;
+      const headDayCells = Array.from(headRow.querySelectorAll('.day-cell, .column-heading')).filter(c => !c.classList.contains('time-cell'));
+      const headCell = headDayCells[colIndex];
+      if (!headCell) return null;
+
+      const dayMatch = headCell.innerText.match(/(\d{1,2})/);
+      if (!dayMatch) return null;
+      const dayNum = parseInt(dayMatch[1], 10);
+
+      const headerSwitch = document.querySelector('.el-calendar-header-switch') || document.querySelector('.card-body');
+      const switchText = headerSwitch ? headerSwitch.innerText : '';
+      let monthIdx = new Date().getMonth();
+      const lower = switchText.toLowerCase();
+      for (const [key, mIdx] of Object.entries(RU_MONTHS)) {
+        if (lower.includes(key)) {
+          monthIdx = mIdx;
+          break;
+        }
+      }
+
+      const now = new Date();
+      let year = now.getFullYear();
+      if (now.getMonth() === 0 && monthIdx === 11) year--;
+      else if (now.getMonth() === 11 && monthIdx === 0) year++;
+
+      return new Date(year, monthIdx, dayNum, hour, minute);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function isLessonInPast(lessonId, card) {
+    const now = new Date();
+
+    const dates = state.lessonDates[lessonId];
+    if (dates?.dateStart) {
+      return dates.dateStart <= now;
+    }
+
+    const vueComp = card?.querySelector('.sport-item')?.__vue__ || card?.__vue__;
+    const lessonObj = vueComp?.lesson;
+    if (lessonObj) {
+      const d = parseLessonDate(lessonObj.date_start);
+      if (d) {
+        if (!state.lessonDates[lessonId]) state.lessonDates[lessonId] = {};
+        state.lessonDates[lessonId].dateStart = d;
+        return d <= now;
+      }
+    }
+
+    const domDate = getDateFromDom(card);
+    if (domDate) {
+      if (!state.lessonDates[lessonId]) state.lessonDates[lessonId] = {};
+      state.lessonDates[lessonId].dateStart = domDate;
+      return domDate <= now;
+    }
+
+    return false;
+  }
+
   function getLimitForLesson(lessonId) {
     lessonId = String(lessonId);
 
@@ -173,39 +299,53 @@
       totalCount++;
       const lessonId = card.id.replace('section-', '');
       const limitData = getLimitForLesson(lessonId);
+      const isPast = isLessonInPast(lessonId, card);
 
-      if (limitData !== null && typeof limitData.available === 'number') {
-        const available = Math.max(0, limitData.available);
-        const limit = Math.max(0, limitData.limit || 0);
+      const hasSpots = (limitData !== null && typeof limitData.available === 'number') ? limitData.available > 0 : true;
+      const available = limitData ? Math.max(0, limitData.available) : null;
+      const limit = limitData ? Math.max(0, limitData.limit || 0) : null;
 
-        let badge = card.querySelector('.itmo-sport-badge');
-        if (state.settings.showBadges) {
-          if (!badge) {
-            badge = document.createElement('div');
-            badge.className = 'itmo-sport-badge';
-            sportItem.appendChild(badge);
-          }
-          if (available > 0) {
-            badge.className = 'itmo-sport-badge itmo-sport-badge-available';
-            badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> ${available} / ${limit} мест`;
-          } else {
-            badge.className = 'itmo-sport-badge itmo-sport-badge-empty';
-            badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> 0 / ${limit} мест`;
-          }
-        } else if (badge) {
-          badge.remove();
+      // Бейджи
+      let badge = card.querySelector('.itmo-sport-badge');
+      if (state.settings.showBadges) {
+        if (!badge) {
+          badge = document.createElement('div');
+          badge.className = 'itmo-sport-badge';
+          sportItem.appendChild(badge);
         }
 
-        if (state.settings.hideZeroSpots && available <= 0) {
-          card.classList.add('itmo-sport-hidden-card');
-          hiddenCount++;
+        if (isPast) {
+          badge.className = 'itmo-sport-badge itmo-sport-badge-past';
+          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> Прошло`;
+        } else if (available !== null && available > 0) {
+          badge.className = 'itmo-sport-badge itmo-sport-badge-available';
+          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> ${available} / ${limit} мест`;
+        } else if (available !== null && available <= 0) {
+          badge.className = 'itmo-sport-badge itmo-sport-badge-empty';
+          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> 0 / ${limit} мест`;
         } else {
-          card.classList.remove('itmo-sport-hidden-card');
-          availableCount++;
+          badge.className = 'itmo-sport-badge itmo-sport-badge-available';
+          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> Места есть`;
         }
+      } else if (badge) {
+        badge.remove();
+      }
+
+      // Скрытие карточек, если нет мест ИЛИ занятие в прошлом
+      const shouldHide = state.settings.hideZeroSpots && (!hasSpots || isPast);
+
+      if (shouldHide) {
+        card.classList.add('itmo-sport-hidden-card');
+        hiddenCount++;
       } else {
         card.classList.remove('itmo-sport-hidden-card');
         availableCount++;
+      }
+
+      if (isPast && !shouldHide) {
+        card.classList.add('itmo-sport-past-card');
+      } else {
+        card.classList.remove('itmo-sport-past-card');
       }
     });
 
@@ -228,7 +368,7 @@
       customWrapper = document.createElement('div');
       customWrapper.className = 'itmo-sport-switch-wrapper';
       customWrapper.innerHTML = `
-        <label class="switcher itmo-sport-inpage-switcher" title="Скрывать занятия, где 0 свободных мест">
+        <label class="switcher itmo-sport-inpage-switcher" title="Скрывать прошедшие занятия и занятия без мест">
           <input type="checkbox" class="switcher-input" id="itmo-sport-inpage-toggle">
           <span class="switcher-indicator">
             <span class="switcher-yes"></span>

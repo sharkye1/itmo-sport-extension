@@ -2,6 +2,10 @@
   display: none !important;
 }
 
+.itmo-sport-past-card {
+  opacity: 0.6;
+}
+
 .itmo-sport-badge {
   display: inline-flex;
   align-items: center;
@@ -29,6 +33,12 @@
   border: 1px solid #ffcdd2;
 }
 
+.itmo-sport-badge-past {
+  background-color: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
 .itmo-sport-badge-icon {
   width: 6px;
   height: 6px;
@@ -42,6 +52,10 @@
 
 .itmo-sport-badge-empty .itmo-sport-badge-icon {
   background-color: #e53935;
+}
+
+.itmo-sport-badge-past .itmo-sport-badge-icon {
+  background-color: #94a3b8;
 }
 
 .itmo-sport-switch-wrapper {
