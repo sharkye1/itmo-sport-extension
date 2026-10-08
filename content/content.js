@@ -2,11 +2,13 @@
   const DEFAULT_SETTINGS = {
     hideZeroSpots: true,
     hideIntersections: false,
-    showBadges: true
+    showBadges: true,
+    selectedBuildingIds: []
   };
 
   let currentSettings = { ...DEFAULT_SETTINGS };
   let currentStats = { total: 0, available: 0, hidden: 0 };
+  let availableBuildings = [];
 
   async function loadSettings() {
     try {
@@ -38,6 +40,12 @@
       if (event.data.stats) {
         currentStats = event.data.stats;
       }
+      if (event.data.buildings) {
+        availableBuildings = event.data.buildings;
+      }
+      if (event.data.selectedBuildingIds) {
+        currentSettings.selectedBuildingIds = event.data.selectedBuildingIds;
+      }
     }
   });
 
@@ -60,7 +68,8 @@
     if (message.type === 'GET_EXTENSION_STATE') {
       sendResponse({
         settings: currentSettings,
-        stats: currentStats
+        stats: currentStats,
+        buildings: availableBuildings
       });
       return true;
     }

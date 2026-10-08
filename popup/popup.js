@@ -7,12 +7,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   const statTotal = document.getElementById('stat-total');
   const statusCard = document.getElementById('status-card');
   const statusText = document.getElementById('status-text');
+  const chipsContainer = document.getElementById('popup-buildings-chips');
+
+  function getShortName(name) {
+    if (!name) return '';
+    const lower = name.toLowerCase();
+    if (lower.includes('ломонос')) return 'Ломоносова';
+    if (lower.includes('вяземск')) return 'Вяземский';
+    if (lower.includes('кронверк')) return 'Кронверкский';
+    if (lower.includes('чайковск')) return 'Чайковского';
+    if (lower.includes('гривцов')) return 'Гривцова';
+    if (lower.includes('сторонн')) return 'Сторонние';
+    return name.split(',')[0].replace(/^(ул\.|пер\.|пр\.)\s*/i, '').trim();
+  }
 
   const stored = await chrome.storage.local.get({
     hideZeroSpots: true,
     hideIntersections: false,
-    showBadges: true
+    showBadges: true,
+    selectedBuildingIds: []
   });
+
+  let selectedBuildingIds = stored.selectedBuildingIds || [];
 
   toggleHideZero.checked = stored.hideZeroSpots;
   if (toggleHideIntersections) {
@@ -22,6 +38,39 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const isItmoTab = activeTab?.url && activeTab.url.includes('my.itmo.ru');
+
+  function renderChips(buildings, selIds) {
+    if (!chipsContainer || !Array.isArray(buildings) || buildings.length === 0) return;
+    chipsContainer.innerHTML = '';
+
+    const selSet = new Set(selIds.map(String));
+
+    buildings.forEach(b => {
+      const bId = String(b.id);
+      const isSel = selSet.has(bId);
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `popup-chip ${isSel ? 'active' : ''}`;
+      chip.innerText = `${isSel ? '✓ ' : ''}${getShortName(b.name)}`;
+      chip.title = b.name;
+
+      chip.addEventListener('click', async () => {
+        let list = [...selectedBuildingIds];
+        if (list.includes(bId)) {
+          if (list.length > 1) {
+            list = list.filter(x => x !== bId);
+          }
+        } else {
+          list.push(bId);
+        }
+        selectedBuildingIds = list;
+        await updateSetting('selectedBuildingIds', list);
+        renderChips(buildings, list);
+      });
+
+      chipsContainer.appendChild(chip);
+    });
+  }
 
   if (isItmoTab) {
     statusCard.className = 'status-card status-active';
@@ -39,11 +88,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             toggleHideIntersections.checked = response.settings.hideIntersections;
           }
           toggleShowBadges.checked = response.settings.showBadges;
+          if (Array.isArray(response.settings.selectedBuildingIds)) {
+            selectedBuildingIds = response.settings.selectedBuildingIds;
+          }
         }
         if (response.stats) {
           statHidden.innerText = String(response.stats.hidden || 0);
           statAvailable.innerText = String(response.stats.available || 0);
           statTotal.innerText = String(response.stats.total || 0);
+        }
+        if (Array.isArray(response.buildings) && response.buildings.length > 0) {
+          renderChips(response.buildings, selectedBuildingIds);
         }
       }
     } catch (e) {

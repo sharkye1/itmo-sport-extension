@@ -109,7 +109,7 @@ body {
   padding: 12px;
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .control-row {
@@ -138,7 +138,6 @@ body {
   margin-top: 1px;
 }
 
-/* Custom Switch */
 .switch-checkbox {
   position: absolute;
   opacity: 0;
@@ -174,6 +173,49 @@ body {
 
 .switch-checkbox:checked + .switch-ui::after {
   transform: translateX(16px);
+}
+
+.buildings-card {
+  background: #ffffff;
+  padding: 10px 12px;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  margin-bottom: 12px;
+}
+
+.buildings-card-header {
+  margin-bottom: 8px;
+}
+
+.popup-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.popup-chip {
+  border: 1px solid #cbd5e1;
+  background-color: #f8fafc;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.popup-chip.active {
+  background-color: #0d4cd3;
+  border-color: #0d4cd3;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.chips-hint {
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
 }
 
 .stats-section {
