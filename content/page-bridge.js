@@ -21,6 +21,7 @@
     lessonGroupMap: {},
     lessonDates: {},
     lessonIntersections: {},
+    lastScheduleDates: null,
     stats: {
       total: 0,
       available: 0,
@@ -82,9 +83,43 @@
     return null;
   }
 
+  function findBuildingsInObject(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    if (Array.isArray(obj)) {
+      if (obj.some(item => typeof item?.name === 'string' && (item.name.includes('Ломонос') || item.name.includes('Вязем')))) {
+        return obj;
+      }
+      for (const item of obj) {
+        const found = findBuildingsInObject(item);
+        if (found) return found;
+      }
+    } else {
+      if (Array.isArray(obj.buildings)) return obj.buildings;
+      for (const val of Object.values(obj)) {
+        const found = findBuildingsInObject(val);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  async function fetchFiltersDirectly() {
+    try {
+      const res = await fetch('/api/sport/sign/schedule/filters');
+      const json = await res.json();
+      const b = findBuildingsInObject(json);
+      if (Array.isArray(b) && b.length > 0) {
+        state.availableBuildings = b;
+        syncSelectedBuildings();
+        scheduleUpdateUI(30);
+      }
+    } catch (e) {}
+  }
+
   function parseFiltersResponse(data) {
-    if (data?.error_code === 0 && Array.isArray(data?.result?.buildings)) {
-      state.availableBuildings = data.result.buildings;
+    const b = findBuildingsInObject(data);
+    if (Array.isArray(b) && b.length > 0) {
+      state.availableBuildings = b;
       syncSelectedBuildings();
       updateBuildingsBar();
     }
@@ -133,6 +168,17 @@
     }
   }
 
+  function extractDatesFromUrl(url) {
+    try {
+      const u = new URL(url, window.location.origin);
+      const ds = u.searchParams.get('date_start');
+      const de = u.searchParams.get('date_end');
+      if (ds && de) {
+        state.lastScheduleDates = { date_start: ds, date_end: de };
+      }
+    } catch (e) {}
+  }
+
   const origOpen = XMLHttpRequest.prototype.open;
   const origSend = XMLHttpRequest.prototype.send;
 
@@ -145,14 +191,19 @@
     this.addEventListener('load', () => {
       try {
         if (!this._itmoUrl) return;
+        if (this._itmoUrl.includes('_is_ext=1')) return;
         if (this._itmoUrl.includes('/api/sport/sign/schedule/limits')) {
           parseLimitsResponse(JSON.parse(this.responseText));
           scheduleUpdateUI(30);
-        } else if (this._itmoUrl.includes('/api/sport/sign/schedule/filters')) {
+        } else if (this._itmoUrl.includes('filters')) {
           parseFiltersResponse(JSON.parse(this.responseText));
         } else if (this._itmoUrl.includes('/api/sport/sign/schedule')) {
+          extractDatesFromUrl(this._itmoUrl);
           parseScheduleResponse(JSON.parse(this.responseText));
           scheduleUpdateUI(30);
+          if (!isLoadingMultiSchedule && state.settings.selectedBuildingIds?.length > 1) {
+            loadMultiBuildingSchedule();
+          }
         }
       } catch (e) {}
     });
@@ -164,31 +215,58 @@
     const res = await origFetch.apply(this, args);
     try {
       const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+      if (url.includes('_is_ext=1')) return res;
       if (url.includes('/api/sport/sign/schedule/limits')) {
         res.clone().json().then(data => {
           parseLimitsResponse(data);
           scheduleUpdateUI(30);
         }).catch(() => {});
-      } else if (url.includes('/api/sport/sign/schedule/filters')) {
+      } else if (url.includes('filters')) {
         res.clone().json().then(data => {
           parseFiltersResponse(data);
         }).catch(() => {});
       } else if (url.includes('/api/sport/sign/schedule')) {
+        extractDatesFromUrl(url);
         res.clone().json().then(data => {
           parseScheduleResponse(data);
           scheduleUpdateUI(30);
+          if (!isLoadingMultiSchedule && state.settings.selectedBuildingIds?.length > 1) {
+            loadMultiBuildingSchedule();
+          }
         }).catch(() => {});
       }
     } catch (e) {}
     return res;
   };
 
+  function findBuildingsInStore() {
+    const store = window.$nuxt?.$store;
+    if (!store) return null;
+    return findBuildingsInObject(store.state?.['modules/sport']) ||
+           findBuildingsInObject(store.getters);
+  }
+
+  function findBuildingsInDom() {
+    const multiselects = document.querySelectorAll('.multiselect');
+    for (const ms of multiselects) {
+      const options = ms.__vue__?.options;
+      if (Array.isArray(options) && options.length > 0) {
+        if (options.some(o => typeof o?.name === 'string' && (o.name.includes('Ломонос') || o.name.includes('Вязем')))) {
+          return options;
+        }
+      }
+    }
+    return null;
+  }
+
   function syncSelectedBuildings() {
     const store = window.$nuxt?.$store;
-    const currentBuildingId = store?.state?.['modules/sport']?.filters?.currentFilters?.building?.id;
+    const currentBuilding = store?.state?.['modules/sport']?.filters?.currentFilters?.building;
+    const currentId = currentBuilding?.id ? String(currentBuilding.id) : null;
+
     if (!state.settings.selectedBuildingIds || state.settings.selectedBuildingIds.length === 0) {
-      if (currentBuildingId) {
-        state.settings.selectedBuildingIds = [String(currentBuildingId)];
+      if (currentId) {
+        state.settings.selectedBuildingIds = [currentId];
       } else if (state.availableBuildings.length > 0) {
         state.settings.selectedBuildingIds = [String(state.availableBuildings[0].id)];
       }
@@ -200,12 +278,13 @@
       const store = window.$nuxt?.$store;
       if (!store) return;
 
-      const storeBuildings = store.state?.['modules/sport']?.filters?.filters?.buildings ||
-                             store.state?.['modules/sport']?.filters?.availableFilters?.buildings;
-      if (Array.isArray(storeBuildings) && storeBuildings.length > 0 && state.availableBuildings.length === 0) {
-        state.availableBuildings = storeBuildings;
-        syncSelectedBuildings();
-        updateBuildingsBar();
+      if (!state.availableBuildings || state.availableBuildings.length === 0) {
+        const b = findBuildingsInStore() || findBuildingsInDom();
+        if (Array.isArray(b) && b.length > 0) {
+          state.availableBuildings = b;
+          syncSelectedBuildings();
+          updateBuildingsBar();
+        }
       }
 
       const storeLimits = store.state?.['modules/sport']?.limits?.limits ||
@@ -278,6 +357,19 @@
     return merged;
   }
 
+  function getCurrentWeekDates() {
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diffToMonday);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { date_start: fmt(monday), date_end: fmt(sunday) };
+  }
+
   async function loadMultiBuildingSchedule(customDates = null) {
     if (isLoadingMultiSchedule) return;
     const buildingIds = state.settings.selectedBuildingIds;
@@ -286,7 +378,7 @@
     const store = window.$nuxt?.$store;
     if (!store) return;
 
-    const dates = customDates || store.state?.['modules/sport']?.sections?.dates;
+    const dates = customDates || state.lastScheduleDates || store.state?.['modules/sport']?.sections?.dates || getCurrentWeekDates();
     if (!dates?.date_start || !dates?.date_end) return;
 
     isLoadingMultiSchedule = true;
@@ -303,6 +395,7 @@
         params.append('date_end', dates.date_end);
         sportTypes.forEach(st => params.append('sport_type_id', st.id));
         teachers.forEach(t => params.append('teacher_isu', t.id));
+        params.append('_is_ext', '1');
 
         const res = await fetch(`/api/sport/sign/schedule?${params.toString()}`);
         const json = await res.json();
@@ -464,7 +557,7 @@
       const available = limitData ? Math.max(0, limitData.available) : null;
       const limit = limitData ? Math.max(0, limitData.limit || 0) : null;
 
-      // Тег корпуса при выборе нескольких корпусов
+      // Тег корпуса
       let bTag = card.querySelector('.itmo-sport-building-tag');
       const buildingName = state.lessonBuildings[lessonId];
 
@@ -611,20 +704,41 @@
 
   function updateBuildingsBar() {
     if (!state.availableBuildings || state.availableBuildings.length === 0) {
-      syncFromNuxtStore();
-      if (state.availableBuildings.length === 0) return;
+      const fromStore = findBuildingsInStore();
+      if (fromStore) state.availableBuildings = fromStore;
+      else {
+        const fromDom = findBuildingsInDom();
+        if (fromDom) state.availableBuildings = fromDom;
+      }
     }
 
-    const calendarHeader = document.querySelector('.el-calendar-header-switch') ||
-                           document.querySelector('.card.sticky-top') ||
-                           document.querySelector('.el-calendar-table');
-    if (!calendarHeader) return;
+    if (!state.availableBuildings || state.availableBuildings.length === 0) {
+      fetchFiltersDirectly();
+      return;
+    }
+
+    syncSelectedBuildings();
+
+    const weekSwitch = document.querySelector('.el-calendar-header-switch');
+    const calendarCard = document.querySelector('.card.sticky-top') ||
+                         document.querySelector('.card-body') ||
+                         document.querySelector('.el-calendar-table');
+    if (!weekSwitch && !calendarCard) return;
 
     let bar = document.querySelector('.itmo-sport-buildings-bar');
     if (!bar) {
       bar = document.createElement('div');
       bar.className = 'itmo-sport-buildings-bar';
-      calendarHeader.insertAdjacentElement('beforebegin', bar);
+      if (weekSwitch) {
+        const cardBody = weekSwitch.closest('.card-body') || weekSwitch.closest('.card');
+        if (cardBody) {
+          cardBody.insertBefore(bar, cardBody.firstChild);
+        } else if (weekSwitch.parentElement) {
+          weekSwitch.parentElement.insertBefore(bar, weekSwitch);
+        }
+      } else if (calendarCard && calendarCard.parentElement) {
+        calendarCard.parentElement.insertBefore(bar, calendarCard);
+      }
     }
 
     const selectedIds = new Set((state.settings.selectedBuildingIds || []).map(String));
@@ -652,7 +766,9 @@
     bar.innerHTML = chipsHtml;
 
     bar.querySelectorAll('.itmo-sport-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         const id = btn.getAttribute('data-id');
         if (id === 'all') {
           if (isAllSelected) {
@@ -751,6 +867,9 @@
       scheduleUpdateUI(100);
     });
   }
+
+  // Запуск прямого получения фильтров с сервера
+  fetchFiltersDirectly();
 
   let nuxtCheckAttempts = 0;
   const nuxtInterval = setInterval(() => {
