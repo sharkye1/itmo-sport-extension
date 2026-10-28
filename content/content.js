@@ -11,6 +11,16 @@
   let currentStats = { total: 0, available: 0, hidden: 0 };
   let availableBuildings = [];
 
+  function isExtensionValid() {
+    try {
+      return typeof chrome !== 'undefined' &&
+             !!chrome.storage &&
+             typeof chrome.storage.local?.set === 'function';
+    } catch (e) {
+      return false;
+    }
+  }
+
   function applyCompactMode(enabled) {
     const root = document.documentElement || document.querySelector('html');
     if (root) {
@@ -23,6 +33,7 @@
   }
 
   async function loadSettings() {
+    if (!isExtensionValid()) return;
     try {
       const data = await chrome.storage.local.get(DEFAULT_SETTINGS);
       currentSettings = { ...DEFAULT_SETTINGS, ...data };
@@ -48,7 +59,11 @@
         if (setting === 'compactMode') {
           applyCompactMode(value);
         }
-        chrome.storage.local.set({ [setting]: value }).catch(() => {});
+        if (isExtensionValid()) {
+          try {
+            chrome.storage.local.set({ [setting]: value }).catch(() => {});
+          } catch (e) {}
+        }
       }
     }
 
@@ -65,47 +80,57 @@
     }
   });
 
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local') {
-      let changed = false;
-      for (const [key, change] of Object.entries(changes)) {
-        if (key in currentSettings) {
-          if (currentSettings[key] !== change.newValue) {
-            currentSettings[key] = change.newValue;
-            changed = true;
+  if (isExtensionValid() && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local') {
+        let changed = false;
+        for (const [key, change] of Object.entries(changes)) {
+          if (key in currentSettings) {
+            if (currentSettings[key] !== change.newValue) {
+              currentSettings[key] = change.newValue;
+              changed = true;
+            }
           }
         }
+        if (changed) {
+          applyCompactMode(currentSettings.compactMode);
+          sendSettingsToBridge(currentSettings);
+        }
       }
-      if (changed) {
-        applyCompactMode(currentSettings.compactMode);
-        sendSettingsToBridge(currentSettings);
-      }
-    }
-  });
+    });
+  }
 
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'GET_EXTENSION_STATE') {
-      sendResponse({
-        settings: currentSettings,
-        stats: currentStats,
-        buildings: availableBuildings
-      });
-      return true;
-    }
-
-    if (message.type === 'SET_SETTING') {
-      const { setting, value } = message;
-      currentSettings[setting] = value;
-      if (setting === 'compactMode') {
-        applyCompactMode(value);
+  if (isExtensionValid() && chrome.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message.type === 'GET_EXTENSION_STATE') {
+        sendResponse({
+          settings: currentSettings,
+          stats: currentStats,
+          buildings: availableBuildings
+        });
+        return true;
       }
-      chrome.storage.local.set({ [setting]: value }).then(() => {
-        sendSettingsToBridge(currentSettings);
-        sendResponse({ success: true, settings: currentSettings });
-      });
-      return true;
-    }
-  });
+
+      if (message.type === 'SET_SETTING') {
+        const { setting, value } = message;
+        currentSettings[setting] = value;
+        if (setting === 'compactMode') {
+          applyCompactMode(value);
+        }
+        if (isExtensionValid()) {
+          chrome.storage.local.set({ [setting]: value }).then(() => {
+            sendSettingsToBridge(currentSettings);
+            sendResponse({ success: true, settings: currentSettings });
+          }).catch(() => {
+            sendResponse({ success: false });
+          });
+        } else {
+          sendResponse({ success: false });
+        }
+        return true;
+      }
+    });
+  }
 
   loadSettings();
 

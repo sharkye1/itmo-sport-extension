@@ -55,6 +55,7 @@ function createMockChrome(initialStorage = {}) {
       }
     },
     runtime: {
+      id: 'mock-extension-id',
       onMessage: {
         addListener(fn) {
           runtimeMessageListeners.push(fn);
