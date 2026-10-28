@@ -39,6 +39,12 @@
         root.removeAttribute('data-itmo-compact');
       }
     }
+    try {
+      updateTimeCells(enabled);
+    } catch (e) {}
+    try {
+      updateCards();
+    } catch (e) {}
   }
 
   applyCompactMode(state.settings.compactMode);
@@ -48,11 +54,50 @@
   let isInternalScheduleUpdate = false;
   let isLoadingMultiSchedule = false;
 
+  function updateTimeCells(enabled = state.settings.compactMode) {
+    const timeCells = document.querySelectorAll('.time-cell');
+    timeCells.forEach(cell => {
+      if (!enabled) {
+        if (cell.hasAttribute('data-original-html')) {
+          cell.innerHTML = cell.getAttribute('data-original-html');
+          cell.removeAttribute('data-original-html');
+        }
+        return;
+      }
+
+      const startEl = cell.querySelector('.time-start');
+      const endEl = cell.querySelector('.time-end');
+      if (startEl && endEl) {
+        Array.from(cell.childNodes).forEach(node => {
+          if (node !== startEl && node !== endEl) {
+            if (node.nodeType === 3 && node.textContent.trim()) {
+              node.textContent = '';
+            } else if (node.nodeType === 1 && !node.classList.contains('time-start') && !node.classList.contains('time-end')) {
+              node.style.display = 'none';
+            }
+          }
+        });
+      } else {
+        const text = cell.textContent.trim();
+        const m = text.match(/(\d{1,2}:\d{2})\s*[-–—/]?\s*(\d{1,2}:\d{2})/);
+        if (m) {
+          if (!cell.hasAttribute('data-original-html')) {
+            cell.setAttribute('data-original-html', cell.innerHTML);
+          }
+          cell.innerHTML = `<div class="time-start">${m[1]}</div><div class="time-end">${m[2]}</div>`;
+        }
+      }
+    });
+  }
+
   function scheduleUpdateUI(delay = 50) {
     if (updateTimer) clearTimeout(updateTimer);
     updateTimer = setTimeout(() => {
       try {
         applyCompactMode(state.settings.compactMode);
+      } catch (e) {}
+      try {
+        updateTimeCells();
       } catch (e) {}
       try {
         syncFromNuxtStore();
@@ -151,14 +196,38 @@
     } catch (e) {}
   }
 
-  function parseScheduleResponse(data) {
+  function extractBuildingFromUrl(url) {
+    try {
+      const u = new URL(url, window.location.origin);
+      const bId = u.searchParams.get('building_id');
+      if (bId) {
+        if (!state.availableBuildings || state.availableBuildings.length === 0) {
+          const b = findBuildingsInStore() || findBuildingsInDom();
+          if (Array.isArray(b) && b.length > 0) {
+            state.availableBuildings = b;
+          }
+        }
+        if (state.availableBuildings && state.availableBuildings.length > 0) {
+          const bObj = state.availableBuildings.find(b => String(b.id) === String(bId));
+          return getShortBuildingName(bObj?.name);
+        }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function parseScheduleResponse(data, sourceUrl = '') {
     if (!data?.result || !Array.isArray(data.result)) return;
+    const buildingShort = sourceUrl ? extractBuildingFromUrl(sourceUrl) : null;
     data.result.forEach(day => {
       const dayDate = day?.date ? String(day.date).split('T')[0].split(' ')[0] : null;
       if (Array.isArray(day?.lessons)) {
         day.lessons.forEach(lesson => {
           if (!lesson?.id) return;
           const lessonId = String(lesson.id);
+          if (buildingShort) {
+            state.lessonBuildings[lessonId] = buildingShort;
+          }
           if (lesson.lesson_group_id) {
             state.lessonGroupMap[lessonId] = String(lesson.lesson_group_id);
           }
@@ -225,7 +294,7 @@
           parseFiltersResponse(JSON.parse(this.responseText));
         } else if (this._itmoUrl.includes('/api/sport/sign/schedule')) {
           extractDatesFromUrl(this._itmoUrl);
-          parseScheduleResponse(JSON.parse(this.responseText));
+          parseScheduleResponse(JSON.parse(this.responseText), this._itmoUrl);
           scheduleUpdateUI(30);
           if (!isLoadingMultiSchedule && state.settings.selectedBuildingIds?.length > 1) {
             loadMultiBuildingSchedule();
@@ -237,33 +306,35 @@
   };
 
   const origFetch = window.fetch;
-  window.fetch = async function(...args) {
-    const res = await origFetch.apply(this, args);
-    try {
-      const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-      if (url.includes('_is_ext=1')) return res;
-      if (url.includes('/api/sport/sign/schedule/limits')) {
-        res.clone().json().then(data => {
-          parseLimitsResponse(data);
-          scheduleUpdateUI(30);
-        }).catch(() => {});
-      } else if (url.includes('filters')) {
-        res.clone().json().then(data => {
-          parseFiltersResponse(data);
-        }).catch(() => {});
-      } else if (url.includes('/api/sport/sign/schedule')) {
-        extractDatesFromUrl(url);
-        res.clone().json().then(data => {
-          parseScheduleResponse(data);
-          scheduleUpdateUI(30);
-          if (!isLoadingMultiSchedule && state.settings.selectedBuildingIds?.length > 1) {
-            loadMultiBuildingSchedule();
-          }
-        }).catch(() => {});
-      }
-    } catch (e) {}
-    return res;
-  };
+  if (typeof origFetch === 'function') {
+    window.fetch = async function(...args) {
+      const res = await origFetch.apply(this, args);
+      try {
+        const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+        if (url.includes('_is_ext=1')) return res;
+        if (url.includes('/api/sport/sign/schedule/limits')) {
+          res.clone().json().then(data => {
+            parseLimitsResponse(data);
+            scheduleUpdateUI(30);
+          }).catch(() => {});
+        } else if (url.includes('filters')) {
+          res.clone().json().then(data => {
+            parseFiltersResponse(data);
+          }).catch(() => {});
+        } else if (url.includes('/api/sport/sign/schedule')) {
+          extractDatesFromUrl(url);
+          res.clone().json().then(data => {
+            parseScheduleResponse(data, url);
+            scheduleUpdateUI(30);
+            if (!isLoadingMultiSchedule && state.settings.selectedBuildingIds?.length > 1) {
+              loadMultiBuildingSchedule();
+            }
+          }).catch(() => {});
+        }
+      } catch (e) {}
+      return res;
+    };
+  }
 
   function findBuildingsInStore() {
     try {
@@ -422,6 +493,13 @@
     const buildingIds = state.settings.selectedBuildingIds;
     if (!buildingIds || buildingIds.length <= 1) return;
 
+    if (!state.availableBuildings || state.availableBuildings.length === 0) {
+      const b = findBuildingsInStore() || findBuildingsInDom();
+      if (Array.isArray(b) && b.length > 0) {
+        state.availableBuildings = b;
+      }
+    }
+
     const store = window.$nuxt?.$store;
     if (!store) return;
 
@@ -444,7 +522,8 @@
         teachers.forEach(t => params.append('teacher_isu', t.id));
         params.append('_is_ext', '1');
 
-        const res = await fetch(`/api/sport/sign/schedule?${params.toString()}`);
+        const fetchFn = (typeof window !== 'undefined' && window.fetch) || fetch;
+        const res = await fetchFn(`/api/sport/sign/schedule?${params.toString()}`);
         const json = await res.json();
         return { buildingId: bId, data: json };
       });
@@ -582,6 +661,109 @@
     return null;
   }
 
+  function cleanTitlePrefix(str) {
+    return str.replace(/^(?:ст\.?\s*преп(?:\.|одаватель)?|преп(?:\.|одаватель)?|доц(?:\.|ент)?|проф(?:\.|ессор)?|асс(?:\.|истент)?|тренер|д\.?\s*п\.?\s*н\.?|к\.?\s*п\.?\s*н\.?)\s+/i, '').trim();
+  }
+
+  function isPatronymic(w) {
+    return /(?:овна|евна|ична|инична|ович|евич|ич)$/i.test(w);
+  }
+
+  function formatInitial(w) {
+    if (w.includes('-')) {
+      return w.split('-').filter(Boolean).map(p => p[0].toUpperCase() + '.').join('-');
+    }
+    return w[0].toUpperCase() + '.';
+  }
+
+  function formatSingleTeacher(name) {
+    if (!name || typeof name !== 'string') return '';
+    let str = cleanTitlePrefix(name.trim().replace(/\s+/g, ' '));
+    if (!str) return '';
+
+    // Check if starts with initials: 'В. А. Платонова' or 'В.А. Платонова' or 'В. Платонова'
+    const prefixInitialsMatch = str.match(/^([A-Za-zА-Яа-яЁё])\.?\s*([A-Za-zА-Яа-яЁё])?\.?\s+([A-Za-zА-Яа-яЁё-]+)$/);
+    if (prefixInitialsMatch) {
+      const [, i1, i2, surname] = prefixInitialsMatch;
+      if (surname.length > 1) {
+        if (i2) {
+          return `${surname} ${i1.toUpperCase()}. ${i2.toUpperCase()}.`;
+        }
+        return `${surname} ${i1.toUpperCase()}.`;
+      }
+    }
+
+    // Check if ends with initials: 'Платонова В. А.' or 'Платонова В.А.' or 'Платонова В.'
+    const suffixInitialsMatch = str.match(/^([A-Za-zА-Яа-яЁё-]+)\s+([A-Za-zА-Яа-яЁё])\.?\s*([A-Za-zА-Яа-яЁё])?\.?$/);
+    if (suffixInitialsMatch) {
+      const [, surname, i1, i2] = suffixInitialsMatch;
+      if (surname.length > 1) {
+        if (i2) {
+          return `${surname} ${i1.toUpperCase()}. ${i2.toUpperCase()}.`;
+        }
+        return `${surname} ${i1.toUpperCase()}.`;
+      }
+    }
+
+    const parts = str.split(' ');
+    if (parts.length === 1) {
+      return parts[0];
+    }
+
+    // If 3 parts: check if part 2 is patronymic -> e.g. 'Валентина Александровна Платонова'
+    if (parts.length === 3 && isPatronymic(parts[1])) {
+      const firstName = parts[0];
+      const patronymic = parts[1];
+      const surname = parts[2];
+      return `${surname} ${formatInitial(firstName)} ${formatInitial(patronymic)}`;
+    }
+
+    // Standard: Surname First Name Patronymic: 'Платонова Валентина Александровна'
+    const surname = parts[0];
+    const initials = parts.slice(1).map(p => formatInitial(p));
+    return `${surname} ${initials.join(' ')}`;
+  }
+
+  function formatTeacherInitials(fullText) {
+    if (!fullText || typeof fullText !== 'string') return '';
+    if (fullText.includes(',')) {
+      return fullText.split(',').map(s => formatSingleTeacher(s)).join(', ');
+    }
+    if (fullText.includes(';')) {
+      return fullText.split(';').map(s => formatSingleTeacher(s)).join('; ');
+    }
+    if (fullText.includes('/')) {
+      return fullText.split('/').map(s => formatSingleTeacher(s)).join(' / ');
+    }
+    return formatSingleTeacher(fullText);
+  }
+
+  function findTeacherElement(sportItem) {
+    let el = sportItem.querySelector('.teacher, .teacher-name, .itmo-sport-teacher');
+    if (el) return el;
+
+    const candidates = sportItem.querySelectorAll('p, span, div');
+    for (const cand of candidates) {
+      if (cand.classList.contains('section-name') ||
+          cand.classList.contains('itmo-sport-badge') ||
+          cand.classList.contains('itmo-sport-building-tag') ||
+          cand.classList.contains('itmo-sport-title-row') ||
+          cand.classList.contains('itmo-sport-meta-row') ||
+          cand.classList.contains('itmo-sport-badge-icon') ||
+          cand.classList.contains('red_circle') ||
+          cand.closest('.itmo-sport-badge') ||
+          cand.closest('.itmo-sport-building-tag') ||
+          cand.closest('.itmo-sport-title-row')) {
+        continue;
+      }
+      const text = cand.textContent.trim();
+      if (text && /^[А-Яа-яA-Za-zёЁ\s.,-]+$/.test(text) && text.length > 2) {
+        return cand;
+      }
+    }
+    return null;
+  }
+
   function updateCards() {
     const cards = document.querySelectorAll('.section-block');
     let totalCount = 0;
@@ -604,47 +786,118 @@
       const available = limitData ? Math.max(0, limitData.available) : null;
       const limit = limitData ? Math.max(0, limitData.limit || 0) : null;
 
-      // Тег корпуса
-      let bTag = card.querySelector('.itmo-sport-building-tag');
-      const buildingName = state.lessonBuildings[lessonId];
+      // 1. Строка 1: Контейнер заголовка и бейджа мест (.itmo-sport-title-row)
+      const nameSection = sportItem.querySelector('.section-name');
+      let titleRow = sportItem.querySelector('.itmo-sport-title-row');
+      if (!titleRow && nameSection) {
+        titleRow = document.createElement('div');
+        titleRow.className = 'itmo-sport-title-row';
+        nameSection.parentElement.insertBefore(titleRow, nameSection);
+        titleRow.appendChild(nameSection);
+      }
 
+      if (titleRow && nameSection && nameSection.parentElement !== titleRow) {
+        titleRow.insertBefore(nameSection, titleRow.firstChild);
+      }
+
+      // Индикатор пересечения пар (.red_circle) в первой строке рядом с названием
+      const redCircle = sportItem.querySelector('.red_circle');
+      if (redCircle && titleRow && redCircle.parentElement !== titleRow) {
+        if (nameSection && nameSection.nextSibling) {
+          titleRow.insertBefore(redCircle, nameSection.nextSibling);
+        } else {
+          titleRow.appendChild(redCircle);
+        }
+      }
+
+      // 2. Преподаватель: сокращение ФИО до фамилии и инициалов в компактном режиме
+      const teacherEl = findTeacherElement(sportItem);
+      if (teacherEl) {
+        teacherEl.classList.add('itmo-sport-teacher');
+        if (state.settings.compactMode) {
+          if (!teacherEl.hasAttribute('data-original-name')) {
+            teacherEl.setAttribute('data-original-name', teacherEl.textContent.trim());
+          }
+          const original = teacherEl.getAttribute('data-original-name');
+          if (original) {
+            teacherEl.setAttribute('title', original);
+            teacherEl.textContent = formatTeacherInitials(original);
+          }
+        } else if (teacherEl.hasAttribute('data-original-name')) {
+          teacherEl.textContent = teacherEl.getAttribute('data-original-name');
+          teacherEl.removeAttribute('data-original-name');
+        }
+      }
+
+      // 3. Строка 2: Мета-информация (.itmo-sport-meta-row: Преподаватель + Корпус)
+      const buildingName = state.lessonBuildings[lessonId];
+      let metaRow = sportItem.querySelector('.itmo-sport-meta-row');
+      if (!metaRow && (teacherEl || (isMultiBuilding && buildingName))) {
+        metaRow = document.createElement('div');
+        metaRow.className = 'itmo-sport-meta-row';
+        sportItem.appendChild(metaRow);
+      }
+
+      if (metaRow && teacherEl && teacherEl.parentElement !== metaRow) {
+        metaRow.insertBefore(teacherEl, metaRow.firstChild);
+      }
+
+      // 4. Тег корпуса (Building Tag)
+      let bTag = card.querySelector('.itmo-sport-building-tag');
       if (isMultiBuilding && buildingName) {
         if (!bTag) {
           bTag = document.createElement('div');
           bTag.className = 'itmo-sport-building-tag';
-          const nameSection = sportItem.querySelector('.section-name');
-          if (nameSection?.parentElement) {
-            nameSection.parentElement.insertAdjacentElement('afterend', bTag);
-          } else {
-            sportItem.prepend(bTag);
-          }
         }
-        bTag.innerText = `📍 ${buildingName}`;
+        if (metaRow) {
+          if (bTag.parentElement !== metaRow) {
+            metaRow.appendChild(bTag);
+          }
+        } else if (titleRow) {
+          titleRow.insertAdjacentElement('afterend', bTag);
+        } else {
+          sportItem.prepend(bTag);
+        }
+        bTag.textContent = `📍 ${buildingName}`;
       } else if (bTag) {
         bTag.remove();
       }
 
-      // Бейджи мест
+      if (metaRow && metaRow.children.length === 0) {
+        metaRow.remove();
+      }
+
+      // 5. Бейджи мест
       let badge = card.querySelector('.itmo-sport-badge');
       if (state.settings.showBadges) {
         if (!badge) {
           badge = document.createElement('div');
           badge.className = 'itmo-sport-badge';
+        }
+        if (titleRow) {
+          if (badge.parentElement !== titleRow) {
+            titleRow.appendChild(badge);
+          }
+        } else if (badge.parentElement !== sportItem) {
           sportItem.appendChild(badge);
         }
 
         if (isPast) {
           badge.className = 'itmo-sport-badge itmo-sport-badge-past';
           badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> Прошло`;
+          badge.title = 'Занятие уже прошло';
         } else if (available !== null && available > 0) {
           badge.className = 'itmo-sport-badge itmo-sport-badge-available';
-          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> ${available} / ${limit} мест`;
+          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> <span class="badge-count-text">${available} / ${limit}</span><span class="badge-unit"> мест</span>`;
+          badge.title = `${available} из ${limit} мест доступно`;
         } else if (available !== null && available <= 0) {
           badge.className = 'itmo-sport-badge itmo-sport-badge-empty';
-          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> 0 / ${limit} мест`;
+          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> <span class="badge-count-text">0 / ${limit}</span><span class="badge-unit"> мест</span>`;
+          badge.title = `0 из ${limit} мест (запись заполнена)`;
         } else {
           badge.className = 'itmo-sport-badge itmo-sport-badge-available';
           badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> Места есть`;
+          badge.title = 'Свободные места есть';
         }
       } else if (badge) {
         badge.remove();
