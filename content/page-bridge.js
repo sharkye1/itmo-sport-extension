@@ -41,12 +41,6 @@
         root.removeAttribute('data-itmo-compact');
       }
     }
-    try {
-      updateTimeCells(enabled);
-    } catch (e) {}
-    try {
-      updateCards();
-    } catch (e) {}
   }
 
   applyCompactMode(state.settings.compactMode);
@@ -55,6 +49,7 @@
   let isStoreSubscribed = false;
   let isInternalScheduleUpdate = false;
   let isLoadingMultiSchedule = false;
+  let isInternalDOMUpdate = false;
 
   function updateTimeCells(enabled = state.settings.compactMode) {
     const timeCells = document.querySelectorAll('.time-cell');
@@ -95,24 +90,20 @@
   function scheduleUpdateUI(delay = 50) {
     if (updateTimer) clearTimeout(updateTimer);
     updateTimer = setTimeout(() => {
+      isInternalDOMUpdate = true;
       try {
         applyCompactMode(state.settings.compactMode);
-      } catch (e) {}
-      try {
         updateTimeCells();
-      } catch (e) {}
-      try {
         syncFromNuxtStore();
-      } catch (e) {}
-      try {
         updateInPageSwitcher();
-      } catch (e) {}
-      try {
         updateBuildingsBar();
-      } catch (e) {}
-      try {
         updateCards();
-      } catch (e) {}
+      } catch (e) {
+      } finally {
+        setTimeout(() => {
+          isInternalDOMUpdate = false;
+        }, 40);
+      }
     }, delay);
   }
 
@@ -1028,23 +1019,30 @@
   }
 
   function renderBadgeContent(badge, available, limit, isPast) {
+    let cls = '';
+    let html = '';
+    let title = '';
     if (isPast) {
-      badge.className = 'itmo-sport-badge itmo-sport-badge-past';
-      badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> Прошло`;
-      badge.title = 'Занятие уже прошло';
+      cls = 'itmo-sport-badge itmo-sport-badge-past';
+      html = '<span class="itmo-sport-badge-icon"></span> Прошло';
+      title = 'Занятие уже прошло';
     } else if (available !== null && available > 0) {
-      badge.className = 'itmo-sport-badge itmo-sport-badge-available';
-      badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> <span class="badge-count-text">${available} / ${limit}</span><span class="badge-unit"> мест</span>`;
-      badge.title = `${available} из ${limit} мест доступно`;
+      cls = 'itmo-sport-badge itmo-sport-badge-available';
+      html = `<span class="itmo-sport-badge-icon"></span> <span class="badge-count-text">${available} / ${limit}</span><span class="badge-unit"> мест</span>`;
+      title = `${available} из ${limit} мест доступно`;
     } else if (available !== null && available <= 0) {
-      badge.className = 'itmo-sport-badge itmo-sport-badge-empty';
-      badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> <span class="badge-count-text">0 / ${limit}</span><span class="badge-unit"> мест</span>`;
-      badge.title = `0 из ${limit} мест (запись заполнена)`;
+      cls = 'itmo-sport-badge itmo-sport-badge-empty';
+      html = `<span class="itmo-sport-badge-icon"></span> <span class="badge-count-text">0 / ${limit}</span><span class="badge-unit"> мест</span>`;
+      title = `0 из ${limit} мест (запись заполнена)`;
     } else {
-      badge.className = 'itmo-sport-badge itmo-sport-badge-available';
-      badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> Места есть`;
-      badge.title = 'Свободные места есть';
+      cls = 'itmo-sport-badge itmo-sport-badge-available';
+      html = '<span class="itmo-sport-badge-icon"></span> Места есть';
+      title = 'Свободные места есть';
     }
+
+    if (badge.className !== cls) badge.className = cls;
+    if (badge.innerHTML !== html) badge.innerHTML = html;
+    if (badge.title !== title) badge.title = title;
   }
 
   function updateCards() {
@@ -1181,8 +1179,13 @@
           }
           const original = teacherEl.getAttribute('data-original-name');
           if (original) {
-            teacherEl.setAttribute('title', original);
-            teacherEl.textContent = formatTeacherInitials(original);
+            const formatted = formatTeacherInitials(original);
+            if (teacherEl.textContent !== formatted) {
+              teacherEl.textContent = formatted;
+            }
+            if (teacherEl.getAttribute('title') !== original) {
+              teacherEl.setAttribute('title', original);
+            }
           }
         }
 
@@ -1288,6 +1291,10 @@
       }
     });
 
+    const statsChanged = state.stats.total !== totalCount ||
+                         state.stats.available !== availableCount ||
+                         state.stats.hidden !== hiddenCount;
+
     state.stats = {
       total: totalCount,
       available: availableCount,
@@ -1295,7 +1302,9 @@
     };
 
     updateBadgeInSwitcher();
-    notifyContentScript();
+    if (statsChanged) {
+      notifyContentScript();
+    }
   }
 
   function updateInPageSwitcher() {
@@ -1542,10 +1551,53 @@
   });
 
   const observer = new MutationObserver((mutations) => {
+    if (isInternalDOMUpdate) return;
     for (const m of mutations) {
       if (m.addedNodes.length > 0 || m.removedNodes.length > 0) {
-        scheduleUpdateUI(50);
-        break;
+        let isInternal = true;
+        const checkNode = (n) => {
+          if (n.nodeType === 1) {
+            const cl = n.classList;
+            if (cl && (cl.contains('itmo-sport-badge') ||
+                       cl.contains('itmo-sport-title-row') ||
+                       cl.contains('itmo-sport-meta-row') ||
+                       cl.contains('itmo-sport-building-tag') ||
+                       cl.contains('itmo-sport-switch-wrapper') ||
+                       cl.contains('itmo-sport-buildings-bar') ||
+                       cl.contains('badge-count-text') ||
+                       cl.contains('badge-unit') ||
+                       cl.contains('itmo-sport-badge-icon'))) {
+              return true;
+            }
+            if (n.closest && (n.closest('.itmo-sport-title-row') ||
+                              n.closest('.itmo-sport-meta-row') ||
+                              n.closest('.itmo-sport-switch-wrapper') ||
+                              n.closest('.itmo-sport-buildings-bar'))) {
+              return true;
+            }
+          }
+          return false;
+        };
+
+        for (let i = 0; i < m.addedNodes.length; i++) {
+          if (!checkNode(m.addedNodes[i])) {
+            isInternal = false;
+            break;
+          }
+        }
+        if (isInternal && m.removedNodes.length > 0) {
+          for (let i = 0; i < m.removedNodes.length; i++) {
+            if (!checkNode(m.removedNodes[i])) {
+              isInternal = false;
+              break;
+            }
+          }
+        }
+
+        if (!isInternal) {
+          scheduleUpdateUI(60);
+          break;
+        }
       }
     }
   });
