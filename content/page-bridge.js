@@ -22,6 +22,8 @@
     lessonGroupMap: {},
     lessonDates: {},
     lessonIntersections: {},
+    lessonSportNames: {},
+    lessonTeachers: {},
     lastScheduleDates: null,
     stats: {
       total: 0,
@@ -245,6 +247,31 @@
           }
 
           state.lessonDates[lessonId] = { dateStart, dateEnd };
+
+          const sportName = lesson.sport_type?.name || lesson.sport_type_name || lesson.name || lesson.title || lesson.section_name;
+          if (sportName && typeof sportName === 'string') {
+            state.lessonSportNames[lessonId] = sportName.trim();
+          }
+
+          let teacherName = '';
+          if (typeof lesson.teacher === 'string') {
+            teacherName = lesson.teacher;
+          } else if (lesson.teacher?.fio) {
+            teacherName = lesson.teacher.fio;
+          } else if (lesson.teacher?.full_name) {
+            teacherName = lesson.teacher.full_name;
+          } else if (lesson.teacher?.name) {
+            teacherName = lesson.teacher.name;
+          } else if (lesson.teacher_fio) {
+            teacherName = lesson.teacher_fio;
+          } else if (lesson.teacher_name) {
+            teacherName = lesson.teacher_name;
+          } else if (Array.isArray(lesson.teachers) && lesson.teachers.length > 0) {
+            teacherName = lesson.teachers.map(t => typeof t === 'string' ? t : (t.fio || t.full_name || t.name || '')).filter(Boolean).join(', ');
+          }
+          if (teacherName && typeof teacherName === 'string') {
+            state.lessonTeachers[lessonId] = teacherName.trim();
+          }
         });
       }
     });
@@ -676,9 +703,84 @@
     return w[0].toUpperCase() + '.';
   }
 
+  const SPORT_KEYWORDS = [
+    'афк', 'лфк', 'теннис', 'бадминтон', 'волейбол', 'баскетбол', 'футбол', 'мини-футбол',
+    'плавание', 'фитнес', 'аэробика', 'офп', 'стрельба', 'бильярд', 'шахматы', 'шашки',
+    'бокс', 'кикбоксинг', 'тайский бокс', 'единоборств', 'борьб', 'самбо', 'дзюдо', 'дзю-дзюцу',
+    'джиу-джитсу', 'гребл', 'пауэрлифтинг', 'атлетик', 'тяжелая атлетика', 'скалолазан', 'скалолаз',
+    'йога', 'пилатес', 'кроссфит', 'стретчинг', 'гимнастик', 'танц', 'дартс', 'лыж', 'горные лыжи',
+    'велоспорт', 'коньк', 'конькобеж', 'чирлидинг', 'настольный', 'тренажер', 'оздоровительн',
+    'секция', 'парусн', 'регби', 'фрисби', 'скакалка', 'воркаут', 'кросс', 'поло', 'водное поло',
+    'конный', 'рукопашн', 'ориентирован', 'фигурн', 'катани', 'биатлон', 'триатлон', 'туризм',
+    'альпинизм', 'фехтован', 'каратэ', 'сквош', 'акробатик', 'гольф', 'керлинг', 'хоккей', 'флорбол',
+    'гандбол', 'батут', 'сапсерфинг', 'серфинг', 'гирев', 'армрестлинг', 'айкидо', 'тхэквондо',
+    'ушу', 'крав-мага', 'самооборон', 'шейпинг', 'зумба', 'калистеник', 'киберспорт', 'кобудо',
+    'кендо', 'городки'
+  ];
+
+  function isKnownSportText(str) {
+    if (!str || typeof str !== 'string') return false;
+    const lower = str.toLowerCase().trim();
+    if (SPORT_KEYWORDS.some(kw => lower.includes(kw))) return true;
+    return false;
+  }
+
+  function isTeacherText(text) {
+    if (!text || typeof text !== 'string') return false;
+    const str = text.trim();
+    if (str.length < 3) return false;
+    if (isKnownSportText(str)) return false;
+
+    // Academic / coach prefix
+    if (/^(?:ст\.?\s*преп(?:\.|одаватель)?|преп(?:\.|одаватель)?|доц(?:\.|ент)?|проф(?:\.|ессор)?|асс(?:\.|истент)?|тренер|д\.?\s*п\.?\s*н\.?|к\.?\s*п\.?\s*н\.?)(?:\s+|$)/i.test(str)) {
+      return true;
+    }
+
+    // Multiple teachers separated by / or , or ;
+    if (str.includes('/') || str.includes(';') || (str.includes(',') && /[А-Яа-яЁё]/.test(str))) {
+      const parts = str.split(/[/;,]/).map(s => s.trim()).filter(Boolean);
+      if (parts.length > 1 && parts.some(p => isTeacherText(p))) {
+        return true;
+      }
+    }
+
+    const clean = cleanTitlePrefix(str);
+
+    // Initials format: 'В. А. Платонова', 'Платонова В. А.', 'В.А. Платонова', 'Платонова В.', 'В. Платонова'
+    if (/^[A-Za-zА-Яа-яЁё]\.?\s*[A-Za-zА-Яа-яЁё]?\.?\s+[A-Za-zА-Яа-яЁё-]+$/i.test(clean) ||
+        /^[A-Za-zА-Яа-яЁё-]+\s+[A-Za-zА-Яа-яЁё]\.?\s*[A-Za-zА-Яа-яЁё]?\.?$/i.test(clean)) {
+      return true;
+    }
+
+    const words = clean.split(/\s+/);
+    // 3 parts with patronymic: e.g. 'Королева Екатерина Александровна' or 'Валентина Александровна Платонова'
+    if (words.length === 3 && (isPatronymic(words[1]) || isPatronymic(words[2]))) {
+      return true;
+    }
+
+    // 2 parts with patronymic: e.g. 'Екатерина Александровна'
+    if (words.length === 2 && isPatronymic(words[1])) {
+      return true;
+    }
+
+    // 2 parts: Surname + Name (e.g. 'Петров Петр' or 'Иванов Иван') - both capitalized words of 2+ chars,
+    // where word 1 is not a neuter/plural adjective ending in -ое, -ее, -ые, -ие, and neither word is a sport word
+    if (words.length === 2 && /^[А-ЯЁA-Z][а-яёa-z-]+$/.test(words[0]) && /^[А-ЯЁA-Z][а-яёa-z-]+$/.test(words[1])) {
+      if (!/(?:ое|ее|ые|ие)$/i.test(words[0]) && !isKnownSportText(words[0]) && !isKnownSportText(words[1])) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   function formatSingleTeacher(name) {
     if (!name || typeof name !== 'string') return '';
-    let str = cleanTitlePrefix(name.trim().replace(/\s+/g, ' '));
+    const trimmed = name.trim();
+    if (!trimmed) return '';
+    if (isKnownSportText(trimmed)) return trimmed;
+
+    let str = cleanTitlePrefix(trimmed.replace(/\s+/g, ' '));
     if (!str) return '';
 
     // Check if starts with initials: 'В. А. Платонова' or 'В.А. Платонова' or 'В. Платонова'
@@ -719,49 +821,230 @@
     }
 
     // Standard: Surname First Name Patronymic: 'Платонова Валентина Александровна'
-    const surname = parts[0];
-    const initials = parts.slice(1).map(p => formatInitial(p));
-    return `${surname} ${initials.join(' ')}`;
+    if (parts.length === 3 && isPatronymic(parts[2])) {
+      const surname = parts[0];
+      const firstName = parts[1];
+      const patronymic = parts[2];
+      return `${surname} ${formatInitial(firstName)} ${formatInitial(patronymic)}`;
+    }
+
+    // If 2 parts with patronymic: 'Екатерина Александровна' -> 'Екатерина А.'
+    if (parts.length === 2 && isPatronymic(parts[1])) {
+      return `${parts[0]} ${formatInitial(parts[1])}`;
+    }
+
+    // If 2 parts: 'Петров Петр'
+    if (parts.length === 2 && /^[А-ЯЁA-Z][а-яёa-z-]+$/.test(parts[0]) && /^[А-ЯЁA-Z][а-яёa-z-]+$/.test(parts[1])) {
+      if (!/(?:ое|ее|ые|ие)$/i.test(parts[0]) && !isKnownSportText(parts[0]) && !isKnownSportText(parts[1])) {
+        const surname = parts[0];
+        const firstName = parts[1];
+        return `${surname} ${formatInitial(firstName)}`;
+      }
+    }
+
+    // If 3 parts without patronymic, but parts look like capitalized person names:
+    if (parts.length === 3 && parts.every(p => /^[А-ЯЁA-Z][а-яёa-z-]+$/.test(p))) {
+      const surname = parts[0];
+      const initials = parts.slice(1).map(p => formatInitial(p));
+      return `${surname} ${initials.join(' ')}`;
+    }
+
+    return str;
   }
 
   function formatTeacherInitials(fullText) {
     if (!fullText || typeof fullText !== 'string') return '';
-    if (fullText.includes(',')) {
-      return fullText.split(',').map(s => formatSingleTeacher(s)).join(', ');
+    const trimmed = fullText.trim();
+    if (!trimmed) return '';
+    if (isKnownSportText(trimmed)) return trimmed;
+    if (!isTeacherText(trimmed)) return trimmed;
+
+    if (trimmed.includes(',')) {
+      return trimmed.split(',').map(s => formatSingleTeacher(s)).join(', ');
     }
-    if (fullText.includes(';')) {
-      return fullText.split(';').map(s => formatSingleTeacher(s)).join('; ');
+    if (trimmed.includes(';')) {
+      return trimmed.split(';').map(s => formatSingleTeacher(s)).join('; ');
     }
-    if (fullText.includes('/')) {
-      return fullText.split('/').map(s => formatSingleTeacher(s)).join(' / ');
+    if (trimmed.includes('/')) {
+      return trimmed.split('/').map(s => formatSingleTeacher(s)).join(' / ');
     }
-    return formatSingleTeacher(fullText);
+    return formatSingleTeacher(trimmed);
   }
 
-  function findTeacherElement(sportItem) {
-    let el = sportItem.querySelector('.teacher, .teacher-name, .itmo-sport-teacher');
-    if (el) return el;
+  function findCardElements(sportItem, card, lessonId) {
+    const vueComp = sportItem?.__vue__ || card?.__vue__ || sportItem?.parentElement?.__vue__;
+    const lessonObj = vueComp?.lesson || vueComp?.item || vueComp?.section || vueComp?.$props?.lesson;
 
-    const candidates = sportItem.querySelectorAll('p, span, div');
-    for (const cand of candidates) {
-      if (cand.classList.contains('section-name') ||
-          cand.classList.contains('itmo-sport-badge') ||
-          cand.classList.contains('itmo-sport-building-tag') ||
-          cand.classList.contains('itmo-sport-title-row') ||
-          cand.classList.contains('itmo-sport-meta-row') ||
-          cand.classList.contains('itmo-sport-badge-icon') ||
-          cand.classList.contains('red_circle') ||
-          cand.closest('.itmo-sport-badge') ||
-          cand.closest('.itmo-sport-building-tag') ||
-          cand.closest('.itmo-sport-title-row')) {
-        continue;
-      }
-      const text = cand.textContent.trim();
-      if (text && /^[А-Яа-яA-Za-zёЁ\s.,-]+$/.test(text) && text.length > 2) {
-        return cand;
+    let expectedSport = (
+      lessonObj?.sport_type?.name || lessonObj?.sport_type_name ||
+      lessonObj?.name || lessonObj?.title || lessonObj?.section_name ||
+      state.lessonSportNames[lessonId] || ''
+    ).trim();
+
+    let expectedTeacher = '';
+    if (typeof lessonObj?.teacher === 'string') {
+      expectedTeacher = lessonObj.teacher;
+    } else if (lessonObj?.teacher?.fio) {
+      expectedTeacher = lessonObj.teacher.fio;
+    } else if (lessonObj?.teacher?.full_name) {
+      expectedTeacher = lessonObj.teacher.full_name;
+    } else if (lessonObj?.teacher?.name) {
+      expectedTeacher = lessonObj.teacher.name;
+    } else if (lessonObj?.teacher_fio) {
+      expectedTeacher = lessonObj.teacher_fio;
+    } else if (lessonObj?.teacher_name) {
+      expectedTeacher = lessonObj.teacher_name;
+    } else if (Array.isArray(lessonObj?.teachers) && lessonObj.teachers.length > 0) {
+      expectedTeacher = lessonObj.teachers.map(t => typeof t === 'string' ? t : (t.fio || t.full_name || t.name || '')).filter(Boolean).join(', ');
+    } else if (state.lessonTeachers[lessonId]) {
+      expectedTeacher = state.lessonTeachers[lessonId];
+    }
+    expectedTeacher = expectedTeacher.trim();
+
+    if (expectedSport && !state.lessonSportNames[lessonId]) {
+      state.lessonSportNames[lessonId] = expectedSport;
+    }
+    if (expectedTeacher && !state.lessonTeachers[lessonId]) {
+      state.lessonTeachers[lessonId] = expectedTeacher;
+    }
+
+    // 1. Direct class selectors
+    let nameEl = sportItem.querySelector('.section-name, .sport-name, .section-title, .sport-title');
+    let teacherEl = sportItem.querySelector('.teacher, .teacher-name, .itmo-sport-teacher');
+
+    if (teacherEl && isKnownSportText(teacherEl.textContent)) {
+      teacherEl.classList.remove('itmo-sport-teacher');
+      if (!nameEl) nameEl = teacherEl;
+      teacherEl = null;
+    }
+
+    if (nameEl && isTeacherText(nameEl.textContent) && !isKnownSportText(nameEl.textContent)) {
+      if (teacherEl && (isKnownSportText(teacherEl.textContent) || !isTeacherText(teacherEl.textContent))) {
+        const tmp = nameEl;
+        nameEl = teacherEl;
+        teacherEl = tmp;
+      } else if (!teacherEl) {
+        teacherEl = nameEl;
+        nameEl = null;
       }
     }
-    return null;
+
+    if (nameEl && teacherEl) {
+      return { nameEl, teacherEl };
+    }
+
+    // 2. Candidate elements inside sportItem: only leaf text nodes
+    const allNodes = Array.from(sportItem.querySelectorAll('p, span, div, h4, h5, h6')).filter(node => {
+      if (node.classList.contains('itmo-sport-badge') ||
+          node.classList.contains('itmo-sport-building-tag') ||
+          node.classList.contains('itmo-sport-title-row') ||
+          node.classList.contains('itmo-sport-meta-row') ||
+          node.classList.contains('itmo-sport-badge-icon') ||
+          node.classList.contains('badge-count-text') ||
+          node.classList.contains('badge-unit') ||
+          node.classList.contains('red_circle') ||
+          node.closest('.itmo-sport-badge') ||
+          node.closest('.itmo-sport-building-tag')) {
+        return false;
+      }
+      const hasChildTextBlocks = Array.from(node.children).some(ch => {
+        return ['P', 'SPAN', 'DIV', 'H4', 'H5', 'H6'].includes(ch.tagName) && ch.textContent.trim().length > 0;
+      });
+      if (hasChildTextBlocks) {
+        return false;
+      }
+      return node.textContent.trim().length > 0;
+    });
+
+    // Match by expectedSport and expectedTeacher
+    if (!nameEl && expectedSport) {
+      const lowerSport = expectedSport.toLowerCase();
+      nameEl = allNodes.find(n => n !== teacherEl && n.textContent.trim().toLowerCase() === lowerSport) ||
+               allNodes.find(n => n !== teacherEl && n.textContent.trim().toLowerCase().includes(lowerSport));
+    }
+    if (!teacherEl && expectedTeacher) {
+      const lowerTeacher = expectedTeacher.toLowerCase();
+      teacherEl = allNodes.find(n => n !== nameEl && n.textContent.trim().toLowerCase() === lowerTeacher) ||
+                  allNodes.find(n => n !== nameEl && n.textContent.trim().toLowerCase().includes(lowerTeacher));
+    }
+
+    // Match by sports keywords vs teacher characteristics
+    if (!nameEl) {
+      nameEl = allNodes.find(n => n !== teacherEl && isKnownSportText(n.textContent.trim()));
+    }
+    if (!teacherEl) {
+      teacherEl = allNodes.find(n => n !== nameEl && !isKnownSportText(n.textContent.trim()) && isTeacherText(n.textContent.trim()));
+    }
+
+    // Fallback: examine remaining unassigned candidates
+    const unassigned = allNodes.filter(n => n !== nameEl && n !== teacherEl && !n.contains(nameEl) && !n.contains(teacherEl));
+    if (!nameEl && !teacherEl && unassigned.length >= 2) {
+      if (isTeacherText(unassigned[0].textContent.trim()) && !isTeacherText(unassigned[1].textContent.trim())) {
+        teacherEl = unassigned[0];
+        nameEl = unassigned[1];
+      } else if (isTeacherText(unassigned[1].textContent.trim())) {
+        teacherEl = unassigned[1];
+        nameEl = unassigned[0];
+      } else {
+        nameEl = unassigned[0];
+        teacherEl = unassigned[1];
+      }
+    } else {
+      if (!nameEl && unassigned.length > 0) {
+        if (isTeacherText(unassigned[0].textContent.trim()) && !teacherEl) {
+          teacherEl = unassigned[0];
+        } else {
+          nameEl = unassigned[0];
+        }
+        unassigned.shift();
+      }
+      if (!teacherEl && unassigned.length > 0) {
+        const cand = unassigned[0];
+        if (!isKnownSportText(cand.textContent.trim()) && isTeacherText(cand.textContent.trim())) {
+          teacherEl = cand;
+        }
+      }
+    }
+
+    // Final safety check: never allow teacher and sport to be inverted
+    if (nameEl && teacherEl && isTeacherText(nameEl.textContent.trim()) && (isKnownSportText(teacherEl.textContent.trim()) || !isTeacherText(teacherEl.textContent.trim()))) {
+      const tmp = nameEl;
+      nameEl = teacherEl;
+      teacherEl = tmp;
+    }
+
+    return { nameEl, teacherEl };
+  }
+
+  function findTeacherElement(sportItem, card = null, lessonId = null) {
+    if (!lessonId && sportItem) {
+      const block = card || sportItem.closest('.section-block');
+      if (block?.id) {
+        lessonId = block.id.replace('section-', '');
+      }
+    }
+    const { teacherEl } = findCardElements(sportItem, card || sportItem?.closest('.section-block'), lessonId);
+    return teacherEl;
+  }
+
+  function renderBadgeContent(badge, available, limit, isPast) {
+    if (isPast) {
+      badge.className = 'itmo-sport-badge itmo-sport-badge-past';
+      badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> Прошло`;
+      badge.title = 'Занятие уже прошло';
+    } else if (available !== null && available > 0) {
+      badge.className = 'itmo-sport-badge itmo-sport-badge-available';
+      badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> <span class="badge-count-text">${available} / ${limit}</span><span class="badge-unit"> мест</span>`;
+      badge.title = `${available} из ${limit} мест доступно`;
+    } else if (available !== null && available <= 0) {
+      badge.className = 'itmo-sport-badge itmo-sport-badge-empty';
+      badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> <span class="badge-count-text">0 / ${limit}</span><span class="badge-unit"> мест</span>`;
+      badge.title = `0 из ${limit} мест (запись заполнена)`;
+    } else {
+      badge.className = 'itmo-sport-badge itmo-sport-badge-available';
+      badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> Места есть`;
+      badge.title = 'Свободные места есть';
+    }
   }
 
   function updateCards() {
@@ -770,6 +1053,7 @@
     let availableCount = 0;
     let hiddenCount = 0;
 
+    const isCompact = !!state.settings.compactMode;
     const isMultiBuilding = state.settings.selectedBuildingIds && state.settings.selectedBuildingIds.length > 1;
 
     cards.forEach(card => {
@@ -786,35 +1070,112 @@
       const available = limitData ? Math.max(0, limitData.available) : null;
       const limit = limitData ? Math.max(0, limitData.limit || 0) : null;
 
-      // 1. Строка 1: Контейнер заголовка и бейджа мест (.itmo-sport-title-row)
-      const nameSection = sportItem.querySelector('.section-name');
-      let titleRow = sportItem.querySelector('.itmo-sport-title-row');
-      if (!titleRow && nameSection) {
-        titleRow = document.createElement('div');
-        titleRow.className = 'itmo-sport-title-row';
-        nameSection.parentElement.insertBefore(titleRow, nameSection);
-        titleRow.appendChild(nameSection);
-      }
-
-      if (titleRow && nameSection && nameSection.parentElement !== titleRow) {
-        titleRow.insertBefore(nameSection, titleRow.firstChild);
-      }
-
-      // Индикатор пересечения пар (.red_circle) в первой строке рядом с названием
+      const buildingName = state.lessonBuildings[lessonId];
+      const { nameEl: nameSection, teacherEl } = findCardElements(sportItem, card, lessonId);
       const redCircle = sportItem.querySelector('.red_circle');
-      if (redCircle && titleRow && redCircle.parentElement !== titleRow) {
-        if (nameSection && nameSection.nextSibling) {
-          titleRow.insertBefore(redCircle, nameSection.nextSibling);
-        } else {
-          titleRow.appendChild(redCircle);
-        }
-      }
+      let bTag = card.querySelector('.itmo-sport-building-tag');
+      let badge = card.querySelector('.itmo-sport-badge');
 
-      // 2. Преподаватель: сокращение ФИО до фамилии и инициалов в компактном режиме
-      const teacherEl = findTeacherElement(sportItem);
-      if (teacherEl) {
-        teacherEl.classList.add('itmo-sport-teacher');
-        if (state.settings.compactMode) {
+      if (!isCompact) {
+        // =========================================================================
+        // STANDARD MODE (compactMode: false):
+        // Restore 100% native ITMO card layout intact:
+        // - Unwrap and remove .itmo-sport-title-row and .itmo-sport-meta-row
+        // - Restore full teacher name (no initials) and clear data-original-name
+        // - Native ordering: sport title on top, red_circle, teacher underneath, building tag, spots badge at bottom
+        // =========================================================================
+        const existingTitleRow = sportItem.querySelector('.itmo-sport-title-row');
+        const existingMetaRow = sportItem.querySelector('.itmo-sport-meta-row');
+        const hadRows = !!(existingTitleRow || existingMetaRow);
+
+        if (existingTitleRow) {
+          const parent = existingTitleRow.parentElement || sportItem;
+          while (existingTitleRow.firstChild) {
+            parent.insertBefore(existingTitleRow.firstChild, existingTitleRow);
+          }
+          existingTitleRow.remove();
+        }
+
+        if (existingMetaRow) {
+          const parent = existingMetaRow.parentElement || sportItem;
+          while (existingMetaRow.firstChild) {
+            parent.insertBefore(existingMetaRow.firstChild, existingMetaRow);
+          }
+          existingMetaRow.remove();
+        }
+
+        if (teacherEl) {
+          if (teacherEl.hasAttribute('data-original-name')) {
+            teacherEl.textContent = teacherEl.getAttribute('data-original-name');
+            teacherEl.removeAttribute('data-original-name');
+            teacherEl.removeAttribute('title');
+          }
+          teacherEl.classList.remove('itmo-sport-teacher');
+        }
+
+        if (hadRows) {
+          // Native DOM ordering after unwrapping:
+          // 1. Sport title (nameSection) on top
+          if (nameSection && nameSection.parentElement === sportItem) {
+            sportItem.insertBefore(nameSection, sportItem.firstChild);
+          }
+
+          // 2. Red circle next to title
+          if (redCircle && redCircle.parentElement === sportItem && nameSection) {
+            if (nameSection.nextSibling !== redCircle) {
+              sportItem.insertBefore(redCircle, nameSection.nextSibling);
+            }
+          }
+
+          // 3. Teacher underneath title
+          if (teacherEl && teacherEl.parentElement === sportItem) {
+            const afterEl = (redCircle && redCircle.parentElement === sportItem) ? redCircle : nameSection;
+            if (afterEl && afterEl.nextSibling !== teacherEl) {
+              sportItem.insertBefore(teacherEl, afterEl.nextSibling);
+            }
+          }
+        }
+
+        // 4. Building tag
+        if (isMultiBuilding && buildingName) {
+          if (!bTag) {
+            bTag = document.createElement('div');
+            bTag.className = 'itmo-sport-building-tag';
+          }
+          bTag.textContent = `📍 ${buildingName}`;
+          const afterEl = teacherEl || (redCircle && redCircle.parentElement === sportItem ? redCircle : nameSection);
+          if (afterEl) {
+            afterEl.insertAdjacentElement('afterend', bTag);
+          } else {
+            sportItem.prepend(bTag);
+          }
+        } else if (bTag) {
+          bTag.remove();
+        }
+
+        // 5. Spots badge at bottom
+        if (state.settings.showBadges) {
+          if (!badge) {
+            badge = document.createElement('div');
+            badge.className = 'itmo-sport-badge';
+          }
+          sportItem.appendChild(badge);
+          renderBadgeContent(badge, available, limit, isPast);
+        } else if (badge) {
+          badge.remove();
+        }
+
+      } else {
+        // =========================================================================
+        // COMPACT MODE (compactMode: true):
+        // 2-line layout:
+        // Line 1: .itmo-sport-title-row (section-name + red_circle + badge)
+        // Line 2: .itmo-sport-meta-row (teacher initials + building tag)
+        // =========================================================================
+
+        // 1. Teacher initials
+        if (teacherEl) {
+          teacherEl.classList.add('itmo-sport-teacher');
           if (!teacherEl.hasAttribute('data-original-name')) {
             teacherEl.setAttribute('data-original-name', teacherEl.textContent.trim());
           }
@@ -823,84 +1184,88 @@
             teacherEl.setAttribute('title', original);
             teacherEl.textContent = formatTeacherInitials(original);
           }
-        } else if (teacherEl.hasAttribute('data-original-name')) {
-          teacherEl.textContent = teacherEl.getAttribute('data-original-name');
-          teacherEl.removeAttribute('data-original-name');
         }
-      }
 
-      // 3. Строка 2: Мета-информация (.itmo-sport-meta-row: Преподаватель + Корпус)
-      const buildingName = state.lessonBuildings[lessonId];
-      let metaRow = sportItem.querySelector('.itmo-sport-meta-row');
-      if (!metaRow && (teacherEl || (isMultiBuilding && buildingName))) {
-        metaRow = document.createElement('div');
-        metaRow.className = 'itmo-sport-meta-row';
-        sportItem.appendChild(metaRow);
-      }
-
-      if (metaRow && teacherEl && teacherEl.parentElement !== metaRow) {
-        metaRow.insertBefore(teacherEl, metaRow.firstChild);
-      }
-
-      // 4. Тег корпуса (Building Tag)
-      let bTag = card.querySelector('.itmo-sport-building-tag');
-      if (isMultiBuilding && buildingName) {
-        if (!bTag) {
-          bTag = document.createElement('div');
-          bTag.className = 'itmo-sport-building-tag';
-        }
-        if (metaRow) {
-          if (bTag.parentElement !== metaRow) {
-            metaRow.appendChild(bTag);
+        // 2. Line 1: .itmo-sport-title-row
+        let titleRow = sportItem.querySelector('.itmo-sport-title-row');
+        if (!titleRow) {
+          titleRow = document.createElement('div');
+          titleRow.className = 'itmo-sport-title-row';
+          if (nameSection) {
+            nameSection.parentElement.insertBefore(titleRow, nameSection);
+          } else {
+            sportItem.prepend(titleRow);
           }
-        } else if (titleRow) {
-          titleRow.insertAdjacentElement('afterend', bTag);
-        } else {
-          sportItem.prepend(bTag);
         }
-        bTag.textContent = `📍 ${buildingName}`;
-      } else if (bTag) {
-        bTag.remove();
-      }
 
-      if (metaRow && metaRow.children.length === 0) {
-        metaRow.remove();
-      }
-
-      // 5. Бейджи мест
-      let badge = card.querySelector('.itmo-sport-badge');
-      if (state.settings.showBadges) {
-        if (!badge) {
-          badge = document.createElement('div');
-          badge.className = 'itmo-sport-badge';
+        if (nameSection && nameSection.parentElement !== titleRow) {
+          titleRow.insertBefore(nameSection, titleRow.firstChild);
         }
-        if (titleRow) {
+
+        if (redCircle && redCircle.parentElement !== titleRow) {
+          if (nameSection && nameSection.nextSibling) {
+            titleRow.insertBefore(redCircle, nameSection.nextSibling);
+          } else {
+            titleRow.appendChild(redCircle);
+          }
+        }
+
+        // 3. Spots badge in line 1
+        if (state.settings.showBadges) {
+          if (!badge) {
+            badge = document.createElement('div');
+            badge.className = 'itmo-sport-badge';
+          }
           if (badge.parentElement !== titleRow) {
             titleRow.appendChild(badge);
           }
-        } else if (badge.parentElement !== sportItem) {
-          sportItem.appendChild(badge);
+          renderBadgeContent(badge, available, limit, isPast);
+        } else if (badge) {
+          badge.remove();
         }
 
-        if (isPast) {
-          badge.className = 'itmo-sport-badge itmo-sport-badge-past';
-          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> Прошло`;
-          badge.title = 'Занятие уже прошло';
-        } else if (available !== null && available > 0) {
-          badge.className = 'itmo-sport-badge itmo-sport-badge-available';
-          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> <span class="badge-count-text">${available} / ${limit}</span><span class="badge-unit"> мест</span>`;
-          badge.title = `${available} из ${limit} мест доступно`;
-        } else if (available !== null && available <= 0) {
-          badge.className = 'itmo-sport-badge itmo-sport-badge-empty';
-          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> <span class="badge-count-text">0 / ${limit}</span><span class="badge-unit"> мест</span>`;
-          badge.title = `0 из ${limit} мест (запись заполнена)`;
-        } else {
-          badge.className = 'itmo-sport-badge itmo-sport-badge-available';
-          badge.innerHTML = `<span class="itmo-sport-badge-icon"></span> Места есть`;
-          badge.title = 'Свободные места есть';
+        // 4. Line 2: .itmo-sport-meta-row (Teacher + Building tag)
+        let metaRow = sportItem.querySelector('.itmo-sport-meta-row');
+        const needsMetaRow = !!(teacherEl || (isMultiBuilding && buildingName));
+        if (needsMetaRow) {
+          if (!metaRow) {
+            metaRow = document.createElement('div');
+            metaRow.className = 'itmo-sport-meta-row';
+            sportItem.appendChild(metaRow);
+          }
+          if (teacherEl && teacherEl.parentElement !== metaRow) {
+            metaRow.insertBefore(teacherEl, metaRow.firstChild);
+          }
         }
-      } else if (badge) {
-        badge.remove();
+
+        // 5. Building tag in line 2
+        if (isMultiBuilding && buildingName) {
+          if (!bTag) {
+            bTag = document.createElement('div');
+            bTag.className = 'itmo-sport-building-tag';
+          }
+          bTag.textContent = `📍 ${buildingName}`;
+          if (metaRow) {
+            if (bTag.parentElement !== metaRow) {
+              metaRow.appendChild(bTag);
+            }
+          } else if (titleRow) {
+            titleRow.insertAdjacentElement('afterend', bTag);
+          } else {
+            sportItem.prepend(bTag);
+          }
+        } else if (bTag) {
+          bTag.remove();
+        }
+
+        if (metaRow && metaRow.children.length === 0) {
+          metaRow.remove();
+        }
+
+        // Ensure titleRow is before metaRow
+        if (titleRow && metaRow && metaRow.nextSibling === titleRow) {
+          sportItem.insertBefore(titleRow, metaRow);
+        }
       }
 
       // Фильтрация

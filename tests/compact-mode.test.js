@@ -584,4 +584,369 @@ describe('Feature 9: Compact Mode (Компактный режим)', () => {
     assert.ok(css.includes('.card-header'), 'Should target card headers');
     assert.ok(css.includes('.el-calendar__header'), 'Should target calendar header toolbar');
   });
+
+  it('should keep native card DOM layout completely intact when compactMode is false', async () => {
+    // Start bridge with compactMode: false
+    dom.window.eval(`
+      window.__ITMO_SPORT_BRIDGE_LOADED__ = false;
+    `);
+
+    // Override initial settings postMessage before bridge script or simulate immediately
+    loadScript(dom, 'content/page-bridge.js');
+
+    dom.window.postMessage({
+      type: 'ITMO_SPORT_UPDATE_SETTINGS',
+      settings: { compactMode: false, showBadges: true }
+    }, '*');
+
+    await new Promise(r => setTimeout(r, 150));
+
+    const card = dom.window.document.getElementById('section-101');
+    const sportItem = card.querySelector('.sport-item');
+
+    // In standard mode: NO .itmo-sport-title-row and NO .itmo-sport-meta-row
+    assert.equal(sportItem.querySelector('.itmo-sport-title-row'), null, 'itmo-sport-title-row should NOT exist when compact mode is OFF');
+    assert.equal(sportItem.querySelector('.itmo-sport-meta-row'), null, 'itmo-sport-meta-row should NOT exist when compact mode is OFF');
+
+    // Elements should be directly in sportItem in native order: section-name on top, teacher underneath, badge at bottom
+    const children = Array.from(sportItem.children);
+    assert.equal(children[0].className, 'section-name', 'First child must be section-name');
+    assert.equal(children[0].textContent, 'Волейбол');
+
+    assert.ok(children[1].classList.contains('teacher'), 'Second child must be teacher');
+    assert.equal(children[1].textContent, 'Иванов Иван Иванович', 'Teacher name must remain full and unshortened');
+    assert.equal(children[1].getAttribute('data-original-name'), null);
+
+    assert.ok(children[2].classList.contains('itmo-sport-badge'), 'Third child must be spots badge at bottom of card');
+  });
+
+  it('should cleanly unwrap title-row and meta-row and restore native card DOM order when compact mode is toggled off', async () => {
+    loadScript(dom, 'content/page-bridge.js');
+    await new Promise(r => setTimeout(r, 150));
+
+    const card = dom.window.document.getElementById('section-101');
+    const sportItem = card.querySelector('.sport-item');
+
+    // In compact mode: title-row and meta-row exist
+    assert.ok(sportItem.querySelector('.itmo-sport-title-row'), 'title-row must exist in compact mode');
+    assert.ok(sportItem.querySelector('.itmo-sport-meta-row'), 'meta-row must exist in compact mode');
+
+    // Toggle compact mode OFF
+    const toggle = dom.window.document.getElementById('itmo-sport-toggle-compact');
+    toggle.checked = false;
+    toggle.dispatchEvent(new dom.window.Event('change'));
+
+    await new Promise(r => setTimeout(r, 100));
+
+    // After toggling OFF: title-row and meta-row should be completely unwrapped and removed
+    assert.equal(sportItem.querySelector('.itmo-sport-title-row'), null, 'title-row should be removed after toggle off');
+    assert.equal(sportItem.querySelector('.itmo-sport-meta-row'), null, 'meta-row should be removed after toggle off');
+
+    const children = Array.from(sportItem.children);
+    assert.equal(children[0].className, 'section-name', 'Section name must be restored to first child');
+    assert.equal(children[0].textContent, 'Волейбол');
+
+    assert.ok(children[1].classList.contains('teacher'), 'Teacher must be restored under section name');
+    assert.equal(children[1].textContent, 'Иванов Иван Иванович', 'Full teacher name must be restored');
+
+    assert.ok(children[2].classList.contains('itmo-sport-badge'), 'Spots badge must be placed at bottom of card');
+
+    // Toggle compact mode back ON
+    toggle.checked = true;
+    toggle.dispatchEvent(new dom.window.Event('change'));
+    await new Promise(r => setTimeout(r, 100));
+
+    assert.ok(sportItem.querySelector('.itmo-sport-title-row'), 'title-row must be recreated when compact mode re-enabled');
+    assert.ok(sportItem.querySelector('.itmo-sport-meta-row'), 'meta-row must be recreated when compact mode re-enabled');
+    assert.equal(sportItem.querySelector('.teacher').textContent, 'Иванов И. И.');
+  });
+
+  it('should NEVER treat "АФК и ЛФК", "Настольный теннис", "Фитнес (стретчинг)" as teacher names or shorten them', async () => {
+    const row = dom.window.document.querySelector('.el-calendar-row');
+    row.innerHTML += `
+      <div class="day-cell">
+        <div class="section-block" id="section-301">
+          <div class="sport-item">
+            <p>АФК и ЛФК</p>
+          </div>
+        </div>
+      </div>
+      <div class="day-cell">
+        <div class="section-block" id="section-302">
+          <div class="sport-item">
+            <div>Настольный теннис</div>
+          </div>
+        </div>
+      </div>
+      <div class="day-cell">
+        <div class="section-block" id="section-303">
+          <div class="sport-item">
+            <span class="section-name">Фитнес (стретчинг)</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    loadScript(dom, 'content/page-bridge.js');
+    await new Promise(r => setTimeout(r, 150));
+
+    // Card 301: "АФК и ЛФК"
+    const card301 = dom.window.document.getElementById('section-301');
+    const text301 = card301.textContent;
+    assert.ok(text301.includes('АФК и ЛФК'), '"АФК и ЛФК" must remain in full text');
+    assert.equal(text301.includes('АФК И. Л.'), false, '"АФК и ЛФК" must NEVER be corrupted to "АФК И. Л."');
+    assert.equal(card301.querySelector('.itmo-sport-teacher'), null, 'Sport element must not be marked as teacher');
+
+    // Card 302: "Настольный теннис"
+    const card302 = dom.window.document.getElementById('section-302');
+    const text302 = card302.textContent;
+    assert.ok(text302.includes('Настольный теннис'), '"Настольный теннис" must remain in full text');
+    assert.equal(text302.includes('Настольный Т.'), false, '"Настольный теннис" must NEVER be corrupted to "Настольный Т."');
+    assert.equal(card302.querySelector('.itmo-sport-teacher'), null, 'Sport element must not be marked as teacher');
+
+    // Card 303: "Фитнес (стретчинг)"
+    const card303 = dom.window.document.getElementById('section-303');
+    const text303 = card303.textContent;
+    assert.ok(text303.includes('Фитнес (стретчинг)'), '"Фитнес (стретчинг)" must remain intact');
+    assert.equal(card303.querySelector('.itmo-sport-teacher'), null, 'Sport element must not be marked as teacher');
+  });
+
+  it('should never invert teacher and sport name order even with generic DOM tags and correctly pair teacher with sport in both modes', async () => {
+    const row = dom.window.document.querySelector('.el-calendar-row');
+    row.innerHTML += `
+      <div class="day-cell">
+        <div class="section-block" id="section-401">
+          <div class="sport-item">
+            <p>Бадминтон</p>
+            <p>Королева Екатерина Александровна</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    loadScript(dom, 'content/page-bridge.js');
+    await new Promise(r => setTimeout(r, 150));
+
+    const card = dom.window.document.getElementById('section-401');
+    const sportItem = card.querySelector('.sport-item');
+
+    // In compact mode:
+    // Line 1: .itmo-sport-title-row should have "Бадминтон" (sport title)
+    // Line 2: .itmo-sport-meta-row should have "Королева Е. А." (teacher initials)
+    const titleRow = sportItem.querySelector('.itmo-sport-title-row');
+    const metaRow = sportItem.querySelector('.itmo-sport-meta-row');
+    assert.ok(titleRow, 'title-row must exist');
+    assert.ok(metaRow, 'meta-row must exist');
+
+    assert.ok(titleRow.textContent.includes('Бадминтон'), 'Title row must contain the sport name "Бадминтон"');
+    assert.equal(titleRow.textContent.includes('Королева'), false, 'Title row must NOT contain teacher name');
+
+    assert.ok(metaRow.textContent.includes('Королева Е. А.'), 'Meta row must contain teacher initials "Королева Е. А."');
+    assert.equal(metaRow.textContent.includes('Бадминтон'), false, 'Meta row must NOT contain sport name');
+
+    // Now toggle to standard mode (compactMode: false)
+    const toggle = dom.window.document.getElementById('itmo-sport-toggle-compact');
+    toggle.checked = false;
+    toggle.dispatchEvent(new dom.window.Event('change'));
+    await new Promise(r => setTimeout(r, 100));
+
+    // In standard mode:
+    // Layout must be un-wrapped
+    assert.equal(sportItem.querySelector('.itmo-sport-title-row'), null);
+    assert.equal(sportItem.querySelector('.itmo-sport-meta-row'), null);
+
+    const paragraphs = sportItem.querySelectorAll('p');
+    assert.equal(paragraphs.length, 2);
+    // Paragraph 1: Sport Name (on top)
+    assert.equal(paragraphs[0].textContent.trim(), 'Бадминтон', 'Sport name "Бадминтон" must be on top in standard mode');
+    // Paragraph 2: Teacher Name (underneath, in full)
+    assert.equal(paragraphs[1].textContent.trim(), 'Королева Екатерина Александровна', 'Teacher full name must be underneath in standard mode');
+  });
+
+  it('should accurately identify section name and teacher using Vue lesson component internals', async () => {
+    const row = dom.window.document.querySelector('.el-calendar-row');
+    row.innerHTML += `
+      <div class="day-cell">
+        <div class="section-block" id="section-501">
+          <div class="sport-item">
+            <div>АФК и ЛФК</div>
+            <div>Королева Екатерина Александровна</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Attach mock Vue component to the sport-item
+    const card501 = dom.window.document.getElementById('section-501');
+    card501.querySelector('.sport-item').__vue__ = {
+      lesson: {
+        id: 501,
+        sport_type: { name: 'АФК и ЛФК' },
+        teacher: { fio: 'Королева Екатерина Александровна' }
+      }
+    };
+
+    loadScript(dom, 'content/page-bridge.js');
+    await new Promise(r => setTimeout(r, 150));
+
+    const sportItem = card501.querySelector('.sport-item');
+    const titleRow = sportItem.querySelector('.itmo-sport-title-row');
+    const metaRow = sportItem.querySelector('.itmo-sport-meta-row');
+
+    assert.ok(titleRow.textContent.includes('АФК и ЛФК'), 'Title row must contain "АФК и ЛФК"');
+    assert.ok(metaRow.textContent.includes('Королева Е. А.'), 'Meta row must contain "Королева Е. А."');
+  });
+
+  it('should never treat multi-word capitalized sports disciplines as teachers or shorten them', async () => {
+    const row = dom.window.document.querySelector('.el-calendar-row');
+    row.innerHTML += `
+      <div class="day-cell">
+        <div class="section-block" id="section-601">
+          <div class="sport-item">
+            <p>Водное Поло</p>
+          </div>
+        </div>
+      </div>
+      <div class="day-cell">
+        <div class="section-block" id="section-602">
+          <div class="sport-item">
+            <p>Конный Спорт</p>
+          </div>
+        </div>
+      </div>
+      <div class="day-cell">
+        <div class="section-block" id="section-603">
+          <div class="sport-item">
+            <p>Рукопашный Бой</p>
+          </div>
+        </div>
+      </div>
+      <div class="day-cell">
+        <div class="section-block" id="section-604">
+          <div class="sport-item">
+            <p>Спортивное Ориентирование</p>
+          </div>
+        </div>
+      </div>
+      <div class="day-cell">
+        <div class="section-block" id="section-605">
+          <div class="sport-item">
+            <p>Фигурное Катание</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    loadScript(dom, 'content/page-bridge.js');
+    await new Promise(r => setTimeout(r, 150));
+
+    // Check each card: must NOT have teacher element, must NOT shorten to initials, must put sport in title row
+    const testCases = [
+      { id: 'section-601', name: 'Водное Поло', forbidden: 'Водное П.' },
+      { id: 'section-602', name: 'Конный Спорт', forbidden: 'Конный С.' },
+      { id: 'section-603', name: 'Рукопашный Бой', forbidden: 'Рукопашный Б.' },
+      { id: 'section-604', name: 'Спортивное Ориентирование', forbidden: 'Спортивное О.' },
+      { id: 'section-605', name: 'Фигурное Катание', forbidden: 'Фигурное К.' }
+    ];
+
+    for (const tc of testCases) {
+      const card = dom.window.document.getElementById(tc.id);
+      const text = card.textContent;
+      assert.ok(text.includes(tc.name), `"${tc.name}" must remain intact in card`);
+      assert.equal(text.includes(tc.forbidden), false, `"${tc.name}" must NEVER be abbreviated to "${tc.forbidden}"`);
+      assert.equal(card.querySelector('.itmo-sport-teacher'), null, `Card for "${tc.name}" must not have a teacher element`);
+
+      const titleRow = card.querySelector('.itmo-sport-title-row');
+      assert.ok(titleRow, `Title row must exist for "${tc.name}"`);
+      assert.ok(titleRow.textContent.includes(tc.name), `Title row must contain "${tc.name}"`);
+
+      // Without teacher and without multi-building, meta-row should NOT be created
+      assert.equal(card.querySelector('.itmo-sport-meta-row'), null, `Meta row should not be created for standalone "${tc.name}"`);
+    }
+  });
+
+  it('should correctly pair multi-word sport with teacher and never invert even when teacher is first in DOM', async () => {
+    const row = dom.window.document.querySelector('.el-calendar-row');
+    row.innerHTML += `
+      <div class="day-cell">
+        <div class="section-block" id="section-701">
+          <div class="sport-item">
+            <p>Водное Поло</p>
+            <p>Королева Екатерина Александровна</p>
+          </div>
+        </div>
+      </div>
+      <div class="day-cell">
+        <div class="section-block" id="section-702">
+          <div class="sport-item">
+            <p>Королева Екатерина Александровна</p>
+            <p>Фехтование</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    loadScript(dom, 'content/page-bridge.js');
+    await new Promise(r => setTimeout(r, 150));
+
+    // Section 701: Sport first, Teacher second
+    const card701 = dom.window.document.getElementById('section-701');
+    const title701 = card701.querySelector('.itmo-sport-title-row');
+    const meta701 = card701.querySelector('.itmo-sport-meta-row');
+    assert.ok(title701.textContent.includes('Водное Поло'), 'Title row must contain "Водное Поло"');
+    assert.equal(title701.textContent.includes('Королева'), false, 'Title row must NOT contain teacher');
+    assert.ok(meta701.textContent.includes('Королева Е. А.'), 'Meta row must contain teacher initials "Королева Е. А."');
+    assert.equal(meta701.textContent.includes('Водное Поло'), false, 'Meta row must NOT contain sport');
+
+    // Section 702: Teacher first in DOM, Sport second
+    const card702 = dom.window.document.getElementById('section-702');
+    const title702 = card702.querySelector('.itmo-sport-title-row');
+    const meta702 = card702.querySelector('.itmo-sport-meta-row');
+    assert.ok(title702.textContent.includes('Фехтование'), 'Title row must contain "Фехтование" despite DOM inversion');
+    assert.equal(title702.textContent.includes('Королева'), false, 'Title row must NOT contain teacher');
+    assert.ok(meta702.textContent.includes('Королева Е. А.'), 'Meta row must contain teacher initials "Королева Е. А."');
+    assert.equal(meta702.textContent.includes('Фехтование'), false, 'Meta row must NOT contain sport');
+  });
+
+  it('should correctly format teachers with academic and coaching title prefixes ending in dots', async () => {
+    const row = dom.window.document.querySelector('.el-calendar-row');
+    row.innerHTML += `
+      <div class="day-cell">
+        <div class="section-block" id="section-801">
+          <div class="sport-item">
+            <span class="section-name">Теннис</span>
+            <span class="teacher">доц. Иванов Иван Иванович</span>
+          </div>
+        </div>
+      </div>
+      <div class="day-cell">
+        <div class="section-block" id="section-802">
+          <div class="sport-item">
+            <span class="section-name">Теннис</span>
+            <span class="teacher">ст. преп. Королева Екатерина Александровна</span>
+          </div>
+        </div>
+      </div>
+      <div class="day-cell">
+        <div class="section-block" id="section-803">
+          <div class="sport-item">
+            <span class="section-name">Теннис</span>
+            <span class="teacher">тренер Петров П. П.</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    loadScript(dom, 'content/page-bridge.js');
+    await new Promise(r => setTimeout(r, 150));
+
+    const card801 = dom.window.document.getElementById('section-801');
+    assert.ok(card801.querySelector('.itmo-sport-meta-row').textContent.includes('Иванов И. И.'));
+
+    const card802 = dom.window.document.getElementById('section-802');
+    assert.ok(card802.querySelector('.itmo-sport-meta-row').textContent.includes('Королева Е. А.'));
+
+    const card803 = dom.window.document.getElementById('section-803');
+    assert.ok(card803.querySelector('.itmo-sport-meta-row').textContent.includes('Петров П. П.'));
+  });
 });
