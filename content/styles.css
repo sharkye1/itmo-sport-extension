@@ -154,3 +154,170 @@
   color: #ffffff;
   font-weight: 600;
 }
+
+/* ==========================================================================
+   Компактный режим (Compact Mode)
+   ========================================================================== */
+
+/* 1. Уменьшение минимальной высоты строк и ячеек таблицы расписания (~52px) */
+html[data-itmo-compact="true"] .el-calendar-table .el-calendar-row,
+html[data-itmo-compact="true"] .el-calendar-table .el-calendar-cell,
+html[data-itmo-compact="true"] .el-calendar-table .el-calendar-day,
+html[data-itmo-compact="true"] .el-calendar-table .day-cell,
+html[data-itmo-compact="true"] .el-calendar-row,
+html[data-itmo-compact="true"] .el-calendar-day,
+html[data-itmo-compact="true"] .day-cell {
+  min-height: 52px !important;
+  height: auto !important;
+}
+
+html[data-itmo-compact="true"] .el-calendar-table .el-calendar-day,
+html[data-itmo-compact="true"] .el-calendar-day {
+  padding: 2px 4px !important;
+  box-sizing: border-box !important;
+}
+
+html[data-itmo-compact="true"] .el-calendar-row-head {
+  min-height: unset !important;
+}
+
+html[data-itmo-compact="true"] .el-calendar-row-head .day-cell,
+html[data-itmo-compact="true"] .el-calendar-row-head .column-heading {
+  min-height: unset !important;
+}
+
+/* 2. Ячейка времени в одну строку: 08:10 – 09:40 */
+html[data-itmo-compact="true"] .time-cell {
+  min-height: 52px !important;
+  padding: 4px 6px !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  white-space: nowrap !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  font-weight: 600 !important;
+}
+
+html[data-itmo-compact="true"] .time-cell > div,
+html[data-itmo-compact="true"] .time-cell > span {
+  display: inline-block !important;
+  line-height: 1.2 !important;
+}
+
+html[data-itmo-compact="true"] .time-cell .time-start,
+html[data-itmo-compact="true"] .time-cell .time-end {
+  display: inline !important;
+}
+
+html[data-itmo-compact="true"] .time-cell .time-start + .time-end::before,
+html[data-itmo-compact="true"] .time-cell > div + div:not(.time-end)::before,
+html[data-itmo-compact="true"] .time-cell > span + span:not(.time-end)::before {
+  content: " – ";
+}
+
+/* 3. Компактные отступы карточек занятий */
+html[data-itmo-compact="true"] .section-block {
+  padding: 2px !important;
+  margin-bottom: 2px !important;
+  min-height: 0 !important;
+}
+
+html[data-itmo-compact="true"] .sport-item {
+  padding: 4px 6px !important;
+  font-size: 11px !important;
+  line-height: 1.25 !important;
+  border-radius: 4px !important;
+  gap: 2px !important;
+}
+
+html[data-itmo-compact="true"] .sport-item .section-name {
+  font-size: 12px !important;
+  line-height: 1.2 !important;
+  margin-bottom: 1px !important;
+  font-weight: 600 !important;
+  white-space: normal !important;
+  word-break: break-word !important;
+}
+
+/* 4. Однострочное имя преподавателя с многоточием */
+html[data-itmo-compact="true"] .sport-item .teacher,
+html[data-itmo-compact="true"] .sport-item .teacher-name,
+html[data-itmo-compact="true"] .sport-item .text-muted,
+html[data-itmo-compact="true"] .sport-item .text-secondary,
+html[data-itmo-compact="true"] .sport-item .small,
+html[data-itmo-compact="true"] .sport-item p:not(.section-name),
+html[data-itmo-compact="true"] .sport-item span:not(.section-name):not(.red_circle):not(.itmo-sport-badge):not(.itmo-sport-badge-icon):not(.itmo-sport-building-tag):not(.badge-count) {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  max-width: 100% !important;
+  display: block !important;
+}
+
+/* 5. Компактное inline/flex выравнивание бейджа мест и тега корпуса */
+html[data-itmo-compact="true"] .itmo-sport-building-tag {
+  font-size: 10px !important;
+  padding: 0 4px !important;
+  margin-top: 1px !important;
+  margin-bottom: 2px !important;
+  line-height: 1.2 !important;
+  border-radius: 3px !important;
+}
+
+html[data-itmo-compact="true"] .itmo-sport-badge {
+  font-size: 10px !important;
+  padding: 1px 5px !important;
+  margin-top: 2px !important;
+  gap: 3px !important;
+  line-height: 1.15 !important;
+  border-radius: 8px !important;
+}
+
+html[data-itmo-compact="true"] .itmo-sport-badge-icon {
+  width: 5px !important;
+  height: 5px !important;
+}
+
+/* 6. Компактный баннер alert, легенда и панель фильтров */
+html[data-itmo-compact="true"] .alert,
+html[data-itmo-compact="true"] .b-alert,
+html[data-itmo-compact="true"] .el-alert {
+  padding: 6px 12px !important;
+  margin-bottom: 8px !important;
+  font-size: 12px !important;
+  min-height: unset !important;
+}
+
+html[data-itmo-compact="true"] .legend,
+html[data-itmo-compact="true"] .calendar-legend {
+  padding: 2px 0 !important;
+  margin-bottom: 4px !important;
+  font-size: 11px !important;
+}
+
+html[data-itmo-compact="true"] .itmo-sport-buildings-bar {
+  padding: 4px 10px !important;
+  margin-top: 4px !important;
+  margin-bottom: 8px !important;
+  gap: 6px !important;
+}
+
+html[data-itmo-compact="true"] .itmo-sport-chip {
+  font-size: 11px !important;
+  padding: 2px 8px !important;
+}
+
+html[data-itmo-compact="true"] .itmo-sport-switch-wrapper {
+  gap: 12px !important;
+  margin-left: 12px !important;
+}
+
+html[data-itmo-compact="true"] .itmo-sport-inpage-switcher .switcher-label {
+  font-size: 12px !important;
+  margin-left: 6px !important;
+}
+

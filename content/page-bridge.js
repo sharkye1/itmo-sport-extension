@@ -12,6 +12,7 @@
     settings: {
       hideZeroSpots: true,
       hideIntersections: false,
+      compactMode: true,
       showBadges: true,
       selectedBuildingIds: []
     },
@@ -29,6 +30,19 @@
     }
   };
 
+  function applyCompactMode(enabled) {
+    const root = document.documentElement || document.querySelector('html');
+    if (root) {
+      if (enabled) {
+        root.setAttribute('data-itmo-compact', 'true');
+      } else {
+        root.removeAttribute('data-itmo-compact');
+      }
+    }
+  }
+
+  applyCompactMode(state.settings.compactMode);
+
   let updateTimer = null;
   let isStoreSubscribed = false;
   let isInternalScheduleUpdate = false;
@@ -37,6 +51,9 @@
   function scheduleUpdateUI(delay = 50) {
     if (updateTimer) clearTimeout(updateTimer);
     updateTimer = setTimeout(() => {
+      try {
+        applyCompactMode(state.settings.compactMode);
+      } catch (e) {}
       try {
         syncFromNuxtStore();
       } catch (e) {}
@@ -664,11 +681,13 @@
   }
 
   function updateInPageSwitcher() {
-    const existingSwitcher = document.querySelector('.switcher');
+    const existingSwitcher = document.querySelector('.switcher:not(.itmo-sport-inpage-switcher)');
     if (!existingSwitcher?.parentElement) return;
 
-    let customWrapper = document.querySelector('.itmo-sport-switch-wrapper');
-    if (!customWrapper) {
+    let customWrapper = existingSwitcher.parentElement.querySelector('.itmo-sport-switch-wrapper') ||
+                         document.querySelector('.itmo-sport-switch-wrapper');
+    if (!customWrapper || !existingSwitcher.parentElement.contains(customWrapper) || !customWrapper.querySelector('#itmo-sport-toggle-compact')) {
+      if (customWrapper) customWrapper.remove();
       customWrapper = document.createElement('div');
       customWrapper.className = 'itmo-sport-switch-wrapper';
       customWrapper.innerHTML = `
@@ -691,6 +710,16 @@
           </span>
           <span class="switcher-label">
             Без пересечений
+          </span>
+        </label>
+        <label class="switcher itmo-sport-inpage-switcher" title="Компактный вид расписания (уменьшает высоту ячеек и карточек)">
+          <input type="checkbox" class="switcher-input" id="itmo-sport-toggle-compact">
+          <span class="switcher-indicator">
+            <span class="switcher-yes"></span>
+            <span class="switcher-no"></span>
+          </span>
+          <span class="switcher-label">
+            Компактно
           </span>
         </label>
       `;
@@ -720,6 +749,19 @@
           value: e.target.checked
         }, '*');
       });
+
+      const toggleCompact = customWrapper.querySelector('#itmo-sport-toggle-compact');
+      toggleCompact.checked = !!state.settings.compactMode;
+      toggleCompact.addEventListener('change', (e) => {
+        state.settings.compactMode = e.target.checked;
+        applyCompactMode(e.target.checked);
+        scheduleUpdateUI(20);
+        window.postMessage({
+          type: 'ITMO_SPORT_BRIDGE_SETTING_CHANGED',
+          setting: 'compactMode',
+          value: e.target.checked
+        }, '*');
+      });
     } else {
       const toggleSpots = customWrapper.querySelector('#itmo-sport-inpage-toggle');
       if (toggleSpots && toggleSpots.checked !== !!state.settings.hideZeroSpots) {
@@ -728,6 +770,10 @@
       const toggleIntersections = customWrapper.querySelector('#itmo-sport-toggle-intersections');
       if (toggleIntersections && toggleIntersections.checked !== !!state.settings.hideIntersections) {
         toggleIntersections.checked = !!state.settings.hideIntersections;
+      }
+      const toggleCompact = customWrapper.querySelector('#itmo-sport-toggle-compact');
+      if (toggleCompact && toggleCompact.checked !== !!state.settings.compactMode) {
+        toggleCompact.checked = !!state.settings.compactMode;
       }
     }
   }
@@ -864,6 +910,7 @@
       if (event.data.settings) {
         const prevBuildingIds = JSON.stringify(state.settings.selectedBuildingIds);
         Object.assign(state.settings, event.data.settings);
+        applyCompactMode(state.settings.compactMode);
         const newBuildingIds = JSON.stringify(state.settings.selectedBuildingIds);
 
         if (prevBuildingIds !== newBuildingIds && state.settings.selectedBuildingIds?.length > 1) {
@@ -890,6 +937,7 @@
     scheduleUpdateUI(100);
   } else {
     document.addEventListener('DOMContentLoaded', () => {
+      applyCompactMode(state.settings.compactMode);
       observer.observe(document.body, { childList: true, subtree: true });
       scheduleUpdateUI(100);
     });

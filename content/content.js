@@ -2,6 +2,7 @@
   const DEFAULT_SETTINGS = {
     hideZeroSpots: true,
     hideIntersections: false,
+    compactMode: true,
     showBadges: true,
     selectedBuildingIds: []
   };
@@ -10,10 +11,22 @@
   let currentStats = { total: 0, available: 0, hidden: 0 };
   let availableBuildings = [];
 
+  function applyCompactMode(enabled) {
+    const root = document.documentElement || document.querySelector('html');
+    if (root) {
+      if (enabled) {
+        root.setAttribute('data-itmo-compact', 'true');
+      } else {
+        root.removeAttribute('data-itmo-compact');
+      }
+    }
+  }
+
   async function loadSettings() {
     try {
       const data = await chrome.storage.local.get(DEFAULT_SETTINGS);
       currentSettings = { ...DEFAULT_SETTINGS, ...data };
+      applyCompactMode(currentSettings.compactMode);
       sendSettingsToBridge(currentSettings);
     } catch (e) {}
   }
@@ -32,6 +45,9 @@
       const { setting, value } = event.data;
       if (setting && typeof value !== 'undefined') {
         currentSettings[setting] = value;
+        if (setting === 'compactMode') {
+          applyCompactMode(value);
+        }
         chrome.storage.local.set({ [setting]: value }).catch(() => {});
       }
     }
@@ -54,11 +70,14 @@
       let changed = false;
       for (const [key, change] of Object.entries(changes)) {
         if (key in currentSettings) {
-          currentSettings[key] = change.newValue;
-          changed = true;
+          if (currentSettings[key] !== change.newValue) {
+            currentSettings[key] = change.newValue;
+            changed = true;
+          }
         }
       }
       if (changed) {
+        applyCompactMode(currentSettings.compactMode);
         sendSettingsToBridge(currentSettings);
       }
     }
@@ -77,6 +96,9 @@
     if (message.type === 'SET_SETTING') {
       const { setting, value } = message;
       currentSettings[setting] = value;
+      if (setting === 'compactMode') {
+        applyCompactMode(value);
+      }
       chrome.storage.local.set({ [setting]: value }).then(() => {
         sendSettingsToBridge(currentSettings);
         sendResponse({ success: true, settings: currentSettings });
