@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
   const toggleHideZero = document.getElementById('toggle-hide-zero');
   const toggleHideIntersections = document.getElementById('toggle-hide-intersections');
+  const toggleCompactMode = document.getElementById('toggle-compact-mode');
   const toggleShowBadges = document.getElementById('toggle-show-badges');
   const statHidden = document.getElementById('stat-hidden');
   const statAvailable = document.getElementById('stat-available');
@@ -24,6 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const stored = await chrome.storage.local.get({
     hideZeroSpots: true,
     hideIntersections: false,
+    compactMode: true,
     showBadges: true,
     selectedBuildingIds: []
   });
@@ -33,6 +35,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   toggleHideZero.checked = stored.hideZeroSpots;
   if (toggleHideIntersections) {
     toggleHideIntersections.checked = !!stored.hideIntersections;
+  }
+  if (toggleCompactMode) {
+    toggleCompactMode.checked = typeof stored.compactMode !== 'undefined' ? stored.compactMode : true;
   }
   toggleShowBadges.checked = stored.showBadges;
 
@@ -87,6 +92,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (toggleHideIntersections && typeof response.settings.hideIntersections !== 'undefined') {
             toggleHideIntersections.checked = response.settings.hideIntersections;
           }
+          if (toggleCompactMode && typeof response.settings.compactMode !== 'undefined') {
+            toggleCompactMode.checked = response.settings.compactMode;
+          }
           toggleShowBadges.checked = response.settings.showBadges;
           if (Array.isArray(response.settings.selectedBuildingIds)) {
             selectedBuildingIds = response.settings.selectedBuildingIds;
@@ -133,7 +141,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  if (toggleCompactMode) {
+    toggleCompactMode.addEventListener('change', async (e) => {
+      await updateSetting('compactMode', e.target.checked);
+    });
+  }
+
   toggleShowBadges.addEventListener('change', async (e) => {
     await updateSetting('showBadges', e.target.checked);
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local') {
+      if (changes.hideZeroSpots && toggleHideZero) {
+        toggleHideZero.checked = changes.hideZeroSpots.newValue;
+      }
+      if (changes.hideIntersections && toggleHideIntersections) {
+        toggleHideIntersections.checked = changes.hideIntersections.newValue;
+      }
+      if (changes.compactMode && toggleCompactMode) {
+        toggleCompactMode.checked = typeof changes.compactMode.newValue !== 'undefined'
+          ? !!changes.compactMode.newValue
+          : true;
+      }
+      if (changes.showBadges && toggleShowBadges) {
+        toggleShowBadges.checked = changes.showBadges.newValue;
+      }
+      if (changes.selectedBuildingIds) {
+        selectedBuildingIds = changes.selectedBuildingIds.newValue || [];
+      }
+    }
   });
 });
