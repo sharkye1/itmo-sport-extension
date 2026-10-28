@@ -1,0 +1,11 @@
+{
+  "name": "itmo-sport-extension",
+  "version": "1.4.0",
+  "description": "ITMO Sport: Доступные места Chrome Extension",
+  "scripts": {
+    "test": "node --test tests/compact-mode.test.js tests/settings-sync.test.js tests/inpage-switchers.test.js tests/card-filtering.test.js tests/multibuilding-merging.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^30.1.3"
+  }
+}
